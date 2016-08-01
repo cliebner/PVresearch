@@ -1,0 +1,11 @@
+PVSyst variants map: Cedar City
+
+VC0: bays_35GCR_b
+VC1: bays_20GCR_b
+VC2: bays_40GCR_b
+VC3: bays_60GCR_b
+VC4: bays_35GCR
+VC5: bays_20GCR
+VC6: bays_40GCR
+VC7: bays_60GCR
+VC8: bays_35GCR_flat

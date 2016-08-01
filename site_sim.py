@@ -1,11 +1,11 @@
 __author__ = 'christina'
 
-import matplotlib
+import matplotlib  # version 1.5.1
 matplotlib.use('tkagg')
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
-import pvlib as pv
+import pandas as pd  # version 0.17.1
+import pvlib as pv  # version 0.2.2
 
 # RESOURCES:
 # Interesting thread on daylight savings, timezones, and capturing errors in irradiance sensor alignment by peak finding:

@@ -1,0 +1,26 @@
+Pvsyst variant map, Hayward:
+
+VC0: 20_2GCR
+VC1: 20_2GCR_b
+VC2: 20_3GCR
+VC3: 20_3GCR_b
+VC4: 20_4GCR
+VC5: 20_4GCR_b
+VC6: 20_5GCR
+VC7: 20_5GCR_b
+VC8: 20_6GCR
+VC9: 20_6GCR_b
+VCA: 20_7GCR
+VCB: 20_7GCR_b
+VCC: 20_8GCR
+VCD: 20_8GCR_b
+VCE: 20_2GCR_flat
+VCF: bays_35GCR_b
+VCG: bays_20GCR_b
+VCH: bays_40GCR_b
+VCI: bays_60GCR_b
+VCJ: bays_35GCR
+VCK: bays_20GCR
+VCL: bays_40GCR
+VCM: bays_60GCR
+VCN: bays_35GCR_flat
