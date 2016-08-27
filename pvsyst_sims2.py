@@ -21,18 +21,18 @@ ANG_SURF_AZ = 'Panel Azimuth'  # pvlib - 180 = pvsyst
 ANG_SURF_TILT = 'Panel Tilt'
 ANG_TRACK = 'Tracker Angle'
 ANG_ZENITH = 'Sun Zenith'
-H_GLOBAL = 'Global Horizontal'  # available global irradiance on an unshaded horizontal surface (from weather data)
-H_DIFFUSE = 'Diffuse Horizontal'  # available diffuse irradiance on an unshaded horizontal surface
-H_DIRECT = 'Direct Horizontal'  # available direct beam irradiance on an unshaded horizontal surface
-I_GLOBAL = 'Global Incident'  # available global irradiance in POA (no losses accounted)
-I_DIRECT = 'Direct Incident'  # available direct beam irradiance in POA (no losses accounted)
-I_DIFF_G = 'Albedo Incident'  # available albedo/ground diffuse irradiance in POA (no losses accounted)
-I_DIFF_S = 'Sky Diffuse Incident'  # available sky diffuse irradiance in POA (no losses accounted)
-I_DIFF_T = 'Total Diffuse Incident'  # available total diffuse irradiance in POA (no losses accounted)
-E_GLOBAL = 'Effective Global'  # effective global irradiance, accounting for hourly shading factor + IAM
-E_DIRECT = 'Effective Direct'  # effective direct beam irradiance, accounting for hourly shading factor + IAM
-E_DIFF_S = 'Effective Sky Diffuse'  # effective sky diffuse irradiance, accounting for hourly shading factor + IAM
-E_DIFF_G = 'Albedo Effective'  # effective albedo irradiance, accounting for hourly shading factor + IAM
+H_GLOBAL = 'Global Horizontal Irradiance'  # available global irradiance on an unshaded horizontal surface (from weather data)
+H_DIFFUSE = 'Diffuse Horizontal Irradiance'  # available diffuse irradiance on an unshaded horizontal surface
+H_DIRECT = 'Direct Horizontal Irradiance'  # available direct beam irradiance on an unshaded horizontal surface
+I_GLOBAL = 'Global Incident Irradiance'  # available global irradiance in POA (no losses accounted)
+I_DIRECT = 'Direct Incident Irradiance'  # available direct beam irradiance in POA (no losses accounted)
+I_DIFF_G = 'Albedo Incident Irradiance'  # available albedo/ground diffuse irradiance in POA (no losses accounted)
+I_DIFF_S = 'Sky Diffuse Incident Irradiance'  # available sky diffuse irradiance in POA (no losses accounted)
+I_DIFF_T = 'Total Diffuse Incident Irradiance'  # available total diffuse irradiance in POA (no losses accounted)
+E_GLOBAL = 'Effective Global Irradiance'  # effective global irradiance, accounting for hourly shading factor + IAM
+E_DIRECT = 'Effective Direct Irradiance'  # effective direct beam irradiance, accounting for hourly shading factor + IAM
+E_DIFF_S = 'Effective Sky Diffuse Irradiance'  # effective sky diffuse irradiance, accounting for hourly shading factor + IAM
+E_DIFF_G = 'Albedo Effective Irradiance'  # effective albedo irradiance, accounting for hourly shading factor + IAM
 S_GLOBAL = 'Global Incident w/Shade'  # effective global irradiance, accounting for hourly shading factor
 SLOSS_GLOBAL = 'Global Shade Loss'  # available global irradiance loss due to hourly shading factor
 SLOSS_DIRECT = 'Direct Shade Loss'  # available direct beam irradiance loss due to hourly shading factor
@@ -41,6 +41,11 @@ SF_GLOBAL = 'Global Shade Factor'
 SF_DIRECT = 'Direct Shade Factor'
 SF_DIFF_S = 'Sky Diffuse Shade Factor'
 SF_DIFF_G = 'Albedo Shade Factor'
+IAM_GLOBAL = 'Global corr for IAM'
+ILOSS_GLOBAL = 'Global IAM Loss'
+ILOSS_DIRECT = 'Direct IAM Loss'
+ILOSS_DIFF_S = 'Sky Diffuse IAM Loss'  # unclear if this is total diffuse or just sky
+ILOSS_DIFF_G = 'Albedo IAM Loss'
 IAMF_GLOBAL = 'Global IAM Factor'
 IAMF_DIRECT = 'Direct IAM Factor'
 IAMF_DIFF_S = 'Sky Diffuse IAM Factor'
@@ -49,9 +54,20 @@ IS_DT = 'Diffuse Tracking?'
 DT_GAIN = 'DiffTrack Gain'
 DT_GAIN_FACTOR = 'DiffTrack Gain Factor'
 DT_ANG_TRACK = 'DiffTrack Tracker Angle'
+DT_E_GLOBAL = 'DiffTrack Eff Global Irradiance'
+DT_ENERGY_ARRAY = 'DiffTrack Array Output Energy'
+DT_ENERGY_GRID = 'DiffTrack Energy to Grid'
 H_DIFF_RATIO = 'Horizontal Diffuse Ratio'
 I_DIFF_RATIO = 'Incident Diffuse Ratio'
 E_DIFF_RATIO = 'Effective Diffuse Ratio'
+RATIO_DIFF_S = 'Incident Sky Diffuse Ratio'
+ENERGY_ARRAY = 'Array Output Energy'
+PVLOSS_IRRADIANCE = 'PV Loss due to Irradiance'
+PVLOSS_TEMP = 'PV Loss due to Temp'
+ENERGY_GRID = 'Energy to Grid'
+SCALE = 'scale factor'
+LIM = 'limits'
+UNITS = 'units'
 
 SOLSTICES = [SUMMER, SPRING, WINTER]
 
@@ -64,11 +80,14 @@ angles_range = [-90.0, 90.0]
 irradiance_list = [H_GLOBAL, H_DIFFUSE, H_DIRECT, I_GLOBAL, I_DIRECT, I_DIFF_G, I_DIFF_S, I_DIFF_T,
                    E_GLOBAL, E_DIRECT, E_DIFF_S, E_DIFF_G, S_GLOBAL, SLOSS_GLOBAL, SLOSS_DIRECT, SLOSS_DIFFUSE, DT_GAIN]
 irradiance_range = [0.0, 1000.0]
+energy_list = [ENERGY_ARRAY, ENERGY_GRID, PVLOSS_IRRADIANCE, PVLOSS_TEMP]
+energy_range = [0.0, 1000.0]
 boolean_list = [IS_DT]
 boolean_range = [-1.5, 1.5]
-resample_rate = {
+resample_rate_dict = {
     'A': 'Annual',
     'M': 'Monthly',
+    'W': 'Weekly',
     'D': 'Daily',
     'H': 'Hourly',
 }
@@ -103,6 +122,16 @@ pvsyst_rename = {
     'FIAMBm': IAMF_DIRECT,
     'FIAMDif': IAMF_DIFF_S,
     'FIAMAlb': IAMF_DIFF_G,
+    'DifS/Gl': RATIO_DIFF_S,
+    'EArray': ENERGY_ARRAY,  # W
+    'GIncLss': PVLOSS_IRRADIANCE,  # W
+    'TempLss': PVLOSS_TEMP,  # W
+    'E_Grid': ENERGY_GRID,  # W
+    'GlobIAM': IAM_GLOBAL,  # W/m2
+    'IAMLoss': ILOSS_GLOBAL,  #W/m2
+    'IAMBLss': ILOSS_DIRECT,  #W/m2
+    'IAMDLss': ILOSS_DIFF_S,  # W/m2
+    'IAMALss': ILOSS_DIFF_G,  # W/m2
 }
 
 
@@ -127,6 +156,7 @@ class BatchPVSystResults(object):
         self.variant_list = variant_list
         self.parameter_variant_map = dict(zip(parameter_list, variant_list))
         self.variant_parameter_map = dict(zip(variant_list, parameter_list))
+        self.name_list = [(str(p) + self.parameter_name) for p in self.parameter_list]
 
         self.results_dict = {}
         for v in variant_list:
@@ -135,17 +165,14 @@ class BatchPVSystResults(object):
         print "done!"
 
         self.get_site_diffuseness()
-        daytime_df_index = get_daytime_df(self.results_dict[variant_list[0]]).index
-        self.avg_diffuse = self.results_dict[variant_list[0]].loc[daytime_df_index, H_DIFF_RATIO].mean()
+        self.daytime_df_index = get_daytime_df(self.results_dict[variant_list[0]]).index
+        self.avg_diffuse = {r[0]: r[1].loc[self.daytime_df_index, H_DIFF_RATIO].mean()
+                            for r in self.results_dict.iteritems()}
 
     def unpack_single_pvsyst_result(self, v):
         filename = '../PVresearch/' + self.location + '_Project_HourlyRes_' + v + '.CSV'
         # Unpack results from file:
         # Read in PVSyst results file as data frame:
-        # columns: HSol (sun height), AzSol (sun azimuth), AngInc (incidence angle), AngProf (profile angle),
-        # PlTilt (plane tilt: tracking), PlAzim (plane azimuth: tracking), PhiAng (phi angle: tracking),
-        # DiffHor, BeamHor, GlobHor, T Amb, GlobInc, BeamInc, DifSInc, Alb Inc,
-        # GlobIAM, GlobEFf, BeamEff, DiffEff, Alb_Eff
         result_df = pd.read_csv(filename, sep=';', header=0, skiprows=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11],
                                 index_col=0, parse_dates=True, dayfirst=True)
         result_df.rename(columns=pvsyst_rename, inplace=True)
@@ -180,27 +207,50 @@ class BatchPVSystResults(object):
             plt.ylim([0, 1000])
 
     def get_diffuse_tracking(self, flat_result):
-        # Compare "effective" irradiance from two simulations, where "effective" accounts for linear effect of 3D near
-        # shadings construction & for IAM (impt at low sun angles!):
-        # Outputs: a dataframe with diffuse metrics concatenated onto input tracking_df
-        # Inputs: tracking_df = results df of simulation of arrays on N/S axis with E/W tracking on 0 deg tilt
-        #         flat_df = results df of simulation of arrays w/o tracking on 0 deg tilt
+        # Compare "effective" irradiance, energy from array, and energy to grid from two simulations,
+        # where "effective" accounts for linear effect of 3D near shadings construction and
+        # for IAM (impt at low sun angles!).
+        #
+        # Outputs: a dataframe with diffuse metrics concatenated onto self.results_dict
+        # Inputs: flat_result = BatchPVSyst object for a simulation of arrays w/o tracking on 0 deg tilt
+        #
         flat_df = flat_result.results_dict[flat_result.results_dict.keys()[0]]
         for r in self.results_dict.iteritems():
+            # find when diffuse tracking makes sense:
+            diffuse_tracking_gain_eff_irrad = flat_df[E_GLOBAL] - r[1][E_GLOBAL]
+            is_diffuse_tracking_better = (diffuse_tracking_gain_eff_irrad > 1.0) & (r[1][E_GLOBAL] > 1.0)
+            diffuse_tracking_gain_ratio = diffuse_tracking_gain_eff_irrad / r[1][E_GLOBAL]
 
-            diffuse_tracking_gain = flat_df[E_GLOBAL] - r[1][E_GLOBAL]
-            is_diffuse_tracking_better = (diffuse_tracking_gain > 1.0) & (r[1][E_GLOBAL] > 1.0)
-            diffuse_tracking_gain_ratio = diffuse_tracking_gain / r[1][E_GLOBAL]
-            when_flat = pd.Series([0]*8760, index=flat_df.index)[is_diffuse_tracking_better]
-            when_tracking = r[1].loc[(is_diffuse_tracking_better == False), ANG_TRACK]
-            effective_tracker_angle = pd.concat([when_flat, when_tracking])
-            effective_tracker_angle.sort_index()
+            # pull values from tracking and flat df's as appropriate:
+            track_angle_when_flat = pd.Series([0]*8760, index=flat_df.index)[is_diffuse_tracking_better]
+            track_angle_when_tracking = r[1].loc[(is_diffuse_tracking_better == False), ANG_TRACK]
+            eff_irrad_when_flat = r[1].loc[(is_diffuse_tracking_better == True), E_GLOBAL]
+            eff_irrad_when_tracking = r[1].loc[(is_diffuse_tracking_better == False), E_GLOBAL]
+            energy_array_when_flat = r[1].loc[(is_diffuse_tracking_better == True), ENERGY_ARRAY]
+            energy_array_when_tracking = r[1].loc[(is_diffuse_tracking_better == False), ENERGY_ARRAY]
+            energy_grid_when_flat = r[1].loc[(is_diffuse_tracking_better == True), ENERGY_GRID]
+            energy_grid_when_tracking = r[1].loc[(is_diffuse_tracking_better == False), ENERGY_GRID]
+
+            # merge series:
+            dt_track_angle = pd.concat([track_angle_when_flat, track_angle_when_tracking])
+            dt_track_angle.sort_index()
+            dt_eff_irrad = pd.concat([eff_irrad_when_flat, eff_irrad_when_tracking])
+            dt_eff_irrad.sort_index()
+            dt_energy_array = pd.concat([energy_array_when_flat, energy_array_when_tracking])
+            dt_energy_array.sort_index()
+            dt_energy_grid = pd.concat([energy_grid_when_flat, energy_grid_when_tracking])
+            dt_energy_grid.sort_index()
+
+            # throw it all at the end of the existing df!
             self.results_dict[r[0]] = pd.concat([r[1],
                                                  pd.DataFrame({
                                                      IS_DT: is_diffuse_tracking_better,
-                                                     DT_ANG_TRACK: effective_tracker_angle,
-                                                     DT_GAIN: diffuse_tracking_gain,
+                                                     DT_ANG_TRACK: dt_track_angle,
+                                                     DT_GAIN: diffuse_tracking_gain_eff_irrad,
                                                      DT_GAIN_FACTOR: diffuse_tracking_gain_ratio,
+                                                     DT_E_GLOBAL: dt_eff_irrad,
+                                                     DT_ENERGY_ARRAY: dt_energy_array,
+                                                     DT_ENERGY_GRID: dt_energy_grid,
                                                  })], axis=1)
 
     def get_diffuse_tracking_improvement(self, resample_str):
@@ -249,13 +299,13 @@ class BatchPVSystResults(object):
         plt.ylim([0.0, 0.05])
         plt.title(self.location + ': ' + '\nIrradiance Improvement with Diffuse Tracking ' + title_str, fontsize=16)
 
-    def get_single_factor_df(self, single_factor):
+    def get_single_factor_df(self, single_factor, resample_rate='H'):
         # Creates a dataframe by pulling out one column from each df in the df_dict.  Plotting is a bit easier when all
         # columns are the same factor.
         # E.G. get_single_factor_df(df_dict, ANG_INC) copies angle of incidence values from each df in df_dict and
         # creates a new df.  Column names are the simulation variant names.
         single_factor_df = pd.DataFrame(
-            {(str(self.variant_parameter_map[r[0]]) + self.parameter_name): r[1][single_factor]
+            {(str(self.variant_parameter_map[r[0]]) + self.parameter_name): r[1][single_factor].resample(resample_rate).sum()
              for r in self.results_dict.iteritems()})
         return single_factor_df
 
@@ -266,7 +316,7 @@ class BatchPVSystResults(object):
         #        days_list: list of datetimes as strings in format %Y-%m-%d; used for subplots' titles
         single_factor_df = self.get_single_factor_df(single_factor)
         legend_list = list(single_factor_df.columns)
-
+        y_info = get_y_axis_info(single_factor)
         plt.figure(figsize=(8, 15))
         plt.suptitle(self.location + ': ' + single_factor + '\n' + title_str, fontsize=16)
 
@@ -274,11 +324,12 @@ class BatchPVSystResults(object):
         for d in range(1, len(days_list) + 1):
             if d == 1:
                 ax.append(plt.subplot(len(days_list), 1, d))
-                plt.ylabel(get_units(single_factor), fontsize=14)
+                plt.ylabel(y_info[UNITS], fontsize=14)
             else:
                 ax.append(plt.subplot(len(days_list), 1, d, sharex=ax[0], sharey=ax[0]))
             plt.grid(True, which='major', axis='x')
-            ax[d - 1].plot(single_factor_df[days_list[d - 1]].index.hour, single_factor_df[days_list[d - 1]])
+            ax[d - 1].plot(single_factor_df[days_list[d - 1]].index.hour, single_factor_df[days_list[d - 1]],
+                           marker='.')
             # if show_flat == True:
             #     ax[d - 1].plot(flat_df[days_list[d - 1]].index.hour, flat_df[days_list[d - 1]], 'k--')
             ax[d - 1].legend(legend_list, loc='lower right', fontsize=9)
@@ -287,7 +338,7 @@ class BatchPVSystResults(object):
         plt.xlabel('Hour of day', fontsize=14)
         ax[0].set_xlim([0, 24])
         ax[0].set_xticks([0, 6, 12, 18, 24])
-        ax[0].set_ylim(get_ylim(single_factor))
+        ax[0].set_ylim(y_info[LIM])
 
     def plot_single_factor_hourly(self, single_factor, variant, title_str=''):
         # Output: graph plotting hourly values of single_factor
@@ -299,63 +350,148 @@ class BatchPVSystResults(object):
         plt.title(self.location + ': ' + single_factor + '\n' +
                   title_str, fontsize=16)
 
+    def compare_single_factor_to_baseline(self, single_factor, baseline_var=None, resample_rate='H', diff='rel'):
+        if baseline_var is None:
+            baseline_var = self.variant_list[0]
+        if diff == 'abs':  # find absolute difference (i.e. variant - baseline)
+            project_diff = pd.DataFrame({(str(self.variant_parameter_map[r[0]])+self.parameter_name):
+                                              r[1][single_factor].resample(resample_rate).sum() -
+                                              self.results_dict[baseline_var][single_factor].resample(resample_rate).sum()
+                                            for r in self.results_dict.iteritems()})
+        elif diff == 'rel':  # find relative difference (i.e. ratio)
+            project_diff = pd.DataFrame({(str(self.variant_parameter_map[r[0]]) + self.parameter_name):
+                                        (r[1][single_factor].resample(resample_rate).sum() -
+                                            self.results_dict[baseline_var][single_factor].resample(resample_rate).sum()) /
+                                        self.results_dict[baseline_var][single_factor].resample(resample_rate).sum()
+                                            for r in self.results_dict.iteritems()})
+        else:
+            print 'diff arg must be rel or abs'
+        # title_dict = {
+        #     'abs': '\n' + '(Variant - Baseline)',
+        #     'rel': ' (Variant - Baseline) / Baseline'
+        # }
+        # # plot:
+        # plot_generic_df(project_diff, single_factor, is_ratio=True,
+        #                 title_str=title_dict[diff] + '\n' + 'Baseline: ' +
+        #                           str(self.variant_parameter_map[baseline_var]) + self.parameter_name)
 
-def compare_single_factor_across_batches(batches_list, variants_list, single_factor, days_list=SOLSTICES):
+        return project_diff
+
+
+def plot_generic_df(df, single_factor, is_ratio=False, title_str='', show_neg=False):
+    y_info = get_y_axis_info(single_factor, is_ratio)
+    for c in df.columns:
+        plt.plot(df.index, df[c]/y_info[SCALE], marker='.')
+    plt.legend(df.columns, loc='best')
+    # if show_neg is True:
+    #     plt.ylim([-1*y_info[LIM][1], -1*y_info[LIM][0]])
+    # else:
+    #     plt.ylim(y_info[LIM])
+    plt.ylabel(y_info[UNITS])
+    plt.title(single_factor + ' ' + title_str)
+
+
+def compare_batches_to_baseline(batches_list, variants_list, params_list, names_list, baseline_series=None, resample_rate='H', diff='rel'):
+    # Compare any result in any batch to any baseline batch.
+    # User's responsbility to compare results that mean something.
+    # ORDER MATTERS for batches_list, factors_list, variants_list, and params_list!!
+    # e.g. this method will compare the factor[i] of variant[i] of the batch[i] with
+    # the factor[i+1] of variant[i+1] of batch[i+1], etc.
+
+    if baseline_series is None:
+        baseline_series = batches_list[0].results_dict[variants_list[0]][params_list[0]]  # df
+    if diff == 'abs':  # find absolute difference (i.e. variant - baseline)
+        project_diff = pd.DataFrame({(str(batches_list[b].location[:6]) + '_' + str(names_list[b])):
+                                         batches_list[b].results_dict[variants_list[b]][params_list[b]].resample(resample_rate).sum() -
+                                         baseline_series.resample(resample_rate).sum()
+                                     for b in range(len(batches_list))})
+    elif diff == 'rel':  # find relative difference (i.e. ratio)
+        project_diff = pd.DataFrame({(str(batches_list[b].location[:6]) + '_' + str(names_list[b])):
+                                         (batches_list[b].results_dict[variants_list[b]][params_list[b]].resample(
+                                             resample_rate).sum() -
+                                          baseline_series.resample(resample_rate).sum()) /
+                                         baseline_series.resample(resample_rate).sum()
+                                     for b in range(len(batches_list))})
+    else:
+        print 'diff arg must be rel or abs'
+    title_dict = {
+        'abs': '\n' + '(Variant - Baseline)',
+        'rel': '\n' + ' (Variant - Baseline) / Baseline',
+    }
+    # # plot:
+    # plot_generic_df(project_diff, factors_list, is_ratio=True,
+    #                 title_str=title_dict[diff] + '\n' + 'Baseline: ' +
+    #                           str(self.variant_parameter_map[baseline_series]) + self.parameter_name)
+    plt.plot(project_diff, marker='.')
+    plt.legend(project_diff.columns, loc='best')
+    plt.ylabel(params_list[0])
+    # plt.title(title_dict[diff] + '\n' + 'Baseline: ' +
+
+
+    return project_diff
+
+
+def compare_single_factor_across_batches(batches_list, variants_list, params_list, single_factor, days_list=SOLSTICES):
+    # ORDER MATTERS for batches_list, variants_list, and params_list!!
+    # e.g. this method will compare the param[i] of variant[i] of the batch[i] with
+    # the param[i+1] of variant[i+1] of batch[i+1], etc.
     results_df_list = []
     legend_list = []
     for b in range(len(batches_list)):
         results_df_list.append(batches_list[b].results_dict.get(variants_list[b]))
-        legend_list.append(batches_list[b].location[:11] +
-                           str(batches_list[b].variant_parameter_map[variants_list[b]]) +
-                           batches_list[b].parameter_name)
+        # legend_list.append(batches_list[b].location[:11] +
+        #                    str(batches_list[b].variant_parameter_map[variants_list[b]]) +
+        #                    batches_list[b].parameter_name)
 
     plt.figure(figsize=(8, 15))
     plt.suptitle(single_factor, fontsize=16)
+    y_info = get_y_axis_info(single_factor)
 
     ax = []
     for d in range(1, len(days_list) + 1):
         if d == 1:
             ax.append(plt.subplot(len(days_list), 1, d))
-            plt.ylabel(get_units(single_factor), fontsize=14)
+            plt.ylabel(y_info[UNITS], fontsize=14)
         else:
             ax.append(plt.subplot(len(days_list), 1, d, sharex=ax[0], sharey=ax[0]))
         plt.grid(True, which='major', axis='x')
-        [ax[d - 1].plot(r[days_list[d - 1]].index.hour, r.loc[days_list[d - 1], single_factor]) for r in results_df_list]
+        [ax[d - 1].plot(r[days_list[d - 1]].index.hour, r.loc[days_list[d - 1], single_factor]/y_info[SCALE])
+         for r in results_df_list]
         ax[d - 1].set_title(days_list[d - 1], fontsize=12)
 
     plt.xlabel('Hour of day', fontsize=14)
     ax[0].set_xlim([0, 24])
     ax[0].set_xticks([0, 6, 12, 18, 24])
-    ax[0].set_ylim(get_ylim(single_factor))
-    ax[0].legend(legend_list, loc='lower right', fontsize=9)
+    ax[0].set_ylim(y_info[LIM])
+    ax[0].legend(params_list, loc='lower right', fontsize=9)
 
 
-def get_ylim(single_factor):
-    if single_factor in factors_list:
-        new_ylim = factors_range
-    elif single_factor in irradiance_list:
-        new_ylim = irradiance_range
-    elif single_factor in angles_list:
-        new_ylim = angles_range
-    elif single_factor in boolean_list:
-        new_ylim = boolean_range
-    else:
-        new_ylim = [0, 1]
-    return new_ylim
-
-
-def get_units(single_factor):
-    if single_factor in factors_list:
+def get_y_axis_info(single_factor, is_ratio):
+    if (single_factor in factors_list) or (is_ratio is True):
+        scale_by = 1.0
+        ylim = factors_range
         units = 'factor'
     elif single_factor in irradiance_list:
-        units = 'W/m2'
+        scale_by = 1.0
+        ylim = irradiance_range
+        units = 'Wh/m2'
     elif single_factor in angles_list:
+        scale_by = 1.0
+        ylim = angles_range
         units = 'Angle (deg)'
     elif single_factor in boolean_list:
+        scale_by = 1.0
+        ylim = boolean_range
         units = '1 = True'
+    elif single_factor in energy_list:
+        scale_by = 1000.0
+        ylim = energy_range
+        units = 'kWh'
     else:
+        scale_by = 1.0
+        ylim = [0, 1]
         units = 'units'
-    return units
+    return {SCALE: scale_by, LIM: ylim, UNITS: units}
 
 
 def get_cloudy_days(results, num_days=3, is_diffuse=True, diffuse_ratio_threshold=0.7, min_day_fraction=0.75):
@@ -384,7 +520,9 @@ def get_daytime_df(df, threshold=10.0):
 
 
 
-
+#test:
+# cedar_test = BatchPVSystResults('Cedar City Municipal Ap', 'track', [60, 45, 50, 55], ['0', 'A', '9', 'B'])
+# plot_generic_df(cedar_test.compare_single_factor_to_baseline(ENERGY_ARRAY, baseline_var='0', resample_rate='M'), ENERGY_ARRAY)
 
 
 

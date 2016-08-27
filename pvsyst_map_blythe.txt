@@ -9,3 +9,9 @@ VC5: bays_20GCR
 VC6: bays_40GCR
 VC7: bays_60GCR
 VC8: bays_35GCR_flat
+VC9: bays_35GCR_b_50t
+VCA: bays_40GCR_b_50t
+VCB: bays_50GCR_b_50t
+VCC: bays_50GCR_b
+VCD: bays_45GCR_b_50t
+VCE: bays_45GCR_b
