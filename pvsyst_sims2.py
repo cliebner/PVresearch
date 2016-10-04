@@ -328,7 +328,7 @@ class BatchPVSystResults(object):
             else:
                 ax.append(plt.subplot(len(days_list), 1, d, sharex=ax[0], sharey=ax[0]))
             plt.grid(True, which='major', axis='x')
-            ax[d - 1].plot(single_factor_df[days_list[d - 1]].index.hour, single_factor_df[days_list[d - 1]],
+            ax[d - 1].plot(single_factor_df[days_list[d - 1]].index.hour, single_factor_df[days_list[d - 1]]/y_info[SCALE],
                            marker='.')
             # if show_flat == True:
             #     ax[d - 1].plot(flat_df[days_list[d - 1]].index.hour, flat_df[days_list[d - 1]], 'k--')
@@ -466,8 +466,8 @@ def compare_single_factor_across_batches(batches_list, variants_list, params_lis
     ax[0].legend(params_list, loc='lower right', fontsize=9)
 
 
-def get_y_axis_info(single_factor, is_ratio):
-    if (single_factor in factors_list) or (is_ratio is True):
+def get_y_axis_info(single_factor):
+    if single_factor in factors_list:
         scale_by = 1.0
         ylim = factors_range
         units = 'factor'

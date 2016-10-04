@@ -44,6 +44,8 @@ SF_GLOBAL = 'Global Shade Factor'
 SF_DIRECT = 'Direct Shade Factor'
 SF_DIFF_S = 'Sky Diffuse Shade Factor'
 SF_DIFF_G = 'Albedo Shade Factor'
+ENERGY_ARRAY = 'DC Energy from Array'
+ENERGY_GRID = 'AC Energy to Grid'
 
 ############### PVSYST naming convention
 PVSYST_CONVENTION = {
@@ -75,6 +77,9 @@ PVSYST_CONVENTION = {
     SF_DIRECT: 'FShdBm',
     SF_DIFF_S: 'FShdDif',
     SF_DIFF_G: 'FShdAlb',
+
+    ENERGY_ARRAY: 'EArray',
+    ENERGY_GRID: 'E_Grid',
 }
 
 class PVsystResultReader(AbstractResultReader):
@@ -183,6 +188,12 @@ class PVsystResultReader(AbstractResultReader):
 
     def get_diffuse_shading_loss(self, tvec):
         return self._get_series_with_name(tvec, SLOSS_DIFFUSE)
+
+    def get_dc_energy_from_array(self, tvec):
+        return self._get_series_with_name(tvec, ENERGY_ARRAY)
+
+    def get_ac_energy_to_grid(self, tvec):
+        return self._get_series_with_name(tvec, ENERGY_GRID)
 
     def _get_series_with_name(self, tvec, name_string):
         var_name = PVSYST_CONVENTION.get(name_string, None)
