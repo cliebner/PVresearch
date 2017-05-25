@@ -29,14 +29,14 @@ I_DIRECT = 'Direct Incident Irradiance'  # available direct beam irradiance in P
 I_DIFF_G = 'Albedo Incident Irradiance'  # available albedo/ground diffuse irradiance in POA (no losses accounted)
 I_DIFF_S = 'Sky Diffuse Incident Irradiance'  # available sky diffuse irradiance in POA (no losses accounted)
 I_DIFF_T = 'Total Diffuse Incident Irradiance'  # available total diffuse irradiance in POA (no losses accounted)
-E_GLOBAL = 'Effective Global Irradiance'  # effective global irradiance, accounting for hourly shading factor + IAM
-E_DIRECT = 'Effective Direct Irradiance'  # effective direct beam irradiance, accounting for hourly shading factor + IAM
-E_DIFF_S = 'Effective Sky Diffuse Irradiance'  # effective sky diffuse irradiance, accounting for hourly shading factor + IAM
-E_DIFF_G = 'Albedo Effective Irradiance'  # effective albedo irradiance, accounting for hourly shading factor + IAM
-S_GLOBAL = 'Global Incident w/Shade'  # effective global irradiance, accounting for hourly shading factor
-SLOSS_GLOBAL = 'Global Shade Loss'  # available global irradiance loss due to hourly shading factor
-SLOSS_DIRECT = 'Direct Shade Loss'  # available direct beam irradiance loss due to hourly shading factor
-SLOSS_DIFFUSE = 'Diffuse Shade Loss'  # available diffuse irradiance loss due to hourly shading factor
+E_GLOBAL = 'Effective Global Irradiance'  # effective global irradiance, accounting for hourly shading output + IAM
+E_DIRECT = 'Effective Direct Irradiance'  # effective direct beam irradiance, accounting for hourly shading output + IAM
+E_DIFF_S = 'Effective Sky Diffuse Irradiance'  # effective sky diffuse irradiance, accounting for hourly shading output + IAM
+E_DIFF_G = 'Albedo Effective Irradiance'  # effective albedo irradiance, accounting for hourly shading output + IAM
+S_GLOBAL = 'Global Incident w/Shade'  # effective global irradiance, accounting for hourly shading output
+SLOSS_GLOBAL = 'Global Shade Loss'  # available global irradiance loss due to hourly shading output
+SLOSS_DIRECT = 'Direct Shade Loss'  # available direct beam irradiance loss due to hourly shading output
+SLOSS_DIFFUSE = 'Diffuse Shade Loss'  # available diffuse irradiance loss due to hourly shading output
 SF_GLOBAL = 'Global Shade Factor'
 SF_DIRECT = 'Direct Shade Factor'
 SF_DIFF_S = 'Sky Diffuse Shade Factor'
@@ -65,15 +65,15 @@ ENERGY_ARRAY = 'Array Output Energy'
 PVLOSS_IRRADIANCE = 'PV Loss due to Irradiance'
 PVLOSS_TEMP = 'PV Loss due to Temp'
 ENERGY_GRID = 'Energy to Grid'
-SCALE = 'scale factor'
+SCALE = 'scale output'
 LIM = 'limits'
 UNITS = 'units'
 
 SOLSTICES = [SUMMER, SPRING, WINTER]
 
-factors_list = [SF_GLOBAL, SF_DIRECT, SF_DIFF_S, SF_DIFF_G, IAMF_GLOBAL, IAMF_DIRECT, IAMF_DIFF_S, IAMF_DIFF_G,
+outputs_list = [SF_GLOBAL, SF_DIRECT, SF_DIFF_S, SF_DIFF_G, IAMF_GLOBAL, IAMF_DIRECT, IAMF_DIFF_S, IAMF_DIFF_G,
                 DT_GAIN_FACTOR]
-factors_range = [0.0, 1.1]
+outputs_range = [0.0, 1.1]
 angles_list = [ANG_ELEV, ANG_AZ, ANG_INC, ANG_PROF, ANG_SURF_AZ, ANG_SURF_TILT, ANG_TRACK, ANG_ZENITH,
                DT_ANG_TRACK]
 angles_range = [-90.0, 90.0]
@@ -143,20 +143,20 @@ class BatchPVSystResults(object):
     # PVSyst differentiates variants of a project by appending the project name with '0', '1', '2', ... etc.
     # The user should define the list of variant suffixes to be considered.
     # The user should also define a list of values that correspond to the project variants.
-    # The value might indicate the parameter that changes from one variant to another.
+    # The value might indicate the output that changes from one variant to another.
     #
     # For example, if a user has created pvsyst variants to study the effect of changing GCR,
-    # then the user should define the variant list as ['0', '1', '2'] and the parameter list as the
+    # then the user should define the variant list as ['0', '1', '2'] and the output list as the
     # range of GCRs studied [0.2, 0.5, 0.8].
 
-    def __init__(self, location, parameter_name, parameter_list, variant_list):
+    def __init__(self, location, output_name, output_list, variant_list):
         self.location = location
-        self.parameter_name = parameter_name
-        self.parameter_list = parameter_list
+        self.output_name = output_name
+        self.output_list = output_list
         self.variant_list = variant_list
-        self.parameter_variant_map = dict(zip(parameter_list, variant_list))
-        self.variant_parameter_map = dict(zip(variant_list, parameter_list))
-        self.name_list = [(str(p) + self.parameter_name) for p in self.parameter_list]
+        self.output_variant_map = dict(zip(output_list, variant_list))
+        self.variant_output_map = dict(zip(variant_list, output_list))
+        self.name_list = [(str(p) + self.output_name) for p in self.output_list]
 
         self.results_dict = {}
         for v in variant_list:
@@ -184,7 +184,7 @@ class BatchPVSystResults(object):
             # Convert names back to PVSyst convention names:
             d[1].rename(columns=pvsyst_rename_inv, inplace=True)
             print "saving to .csv file: " + d[0]
-            d[1].to_csv(self.location + '_' + d[0] + '_' + self.parameter_name)
+            d[1].to_csv(self.location + '_' + d[0] + '_' + self.output_name)
             print "done!"
 
     def get_site_diffuseness(self):
@@ -255,19 +255,19 @@ class BatchPVSystResults(object):
 
     def get_diffuse_tracking_improvement(self, resample_str):
         # Only want to resample values when diffuse makes sense (i.e. "gain" is positive values).
-        # Output: 2-tuple of (absolute gain, gain factor)
+        # Output: 2-tuple of (absolute gain, gain output)
         # Input: df with diffuse values, string representing resample interval ('A' = annual, 'M' = monthly, etc.)
         # Setting resample interval to 'H' should result in same as DT_GAIN and DT_FACTOR.
         diffuse_track_gain = {r[0]: (r[1].loc[r[1][IS_DT], DT_GAIN]).resample(resample_str).sum()
                               for r in self.results_dict.iteritems()}
-        diffuse_track_factor = pd.DataFrame(
+        diffuse_track_output = pd.DataFrame(
             {r[0]: diffuse_track_gain[r[0]] / r[1][E_GLOBAL].resample(resample_str).sum()
              for r in self.results_dict.iteritems()})
-        return diffuse_track_factor
+        return diffuse_track_output
 
     def plot_diffuse_tracking_improvement(self, resample_str, title_str=''):
         # Only want to resample values when diffuse makes sense (i.e. "gain" is positive values).
-        # Output: 2-tuple of (absolute gain, gain factor)
+        # Output: 2-tuple of (absolute gain, gain output)
         # Input: df with diffuse values, string representing resample interval ('A' = annual, 'M' = monthly, etc.)
         # Setting resample interval to 'H' should result in same as DT_GAIN and DT_FACTOR.
 
@@ -275,50 +275,50 @@ class BatchPVSystResults(object):
                               for r in self.results_dict.iteritems()}
 
         if resample_str == 'A':
-            parameter = []
-            diffuse_track_factor = []
+            output = []
+            diffuse_track_output = []
 
             for r in self.results_dict.iteritems():
-                parameter.append(self.variant_parameter_map[r[0]])
-                diffuse_track_factor.append(diffuse_track_gain[r[0]] / r[1][E_GLOBAL].resample(resample_str).sum())
+                output.append(self.variant_output_map[r[0]])
+                diffuse_track_output.append(diffuse_track_gain[r[0]] / r[1][E_GLOBAL].resample(resample_str).sum())
             plt.figure(figsize=(8, 8))
-            plt.plot(parameter, diffuse_track_factor, 'bo')
+            plt.plot(output, diffuse_track_output, 'bo')
             plt.xlabel('Ground coverage ratio, GCR', fontsize=12)
             plt.xlim([0.0, 1.0])
 
         else:
-            diffuse_track_factor = pd.DataFrame(
-                {(str(self.variant_parameter_map[r[0]]) + self.parameter_name):
+            diffuse_track_output = pd.DataFrame(
+                {(str(self.variant_output_map[r[0]]) + self.output_name):
                      diffuse_track_gain[r[0]] / r[1][E_GLOBAL].resample(resample_str).sum()
                  for r in self.results_dict.iteritems()})
             plt.figure(figsize=(15, 8))
-            plt.plot(diffuse_track_factor)
-            plt.legend(diffuse_track_factor.columns)
+            plt.plot(diffuse_track_output)
+            plt.legend(diffuse_track_output.columns)
 
         plt.ylabel('Improvement ratio', fontsize=12)
         plt.ylim([0.0, 0.05])
         plt.title(self.location + ': ' + '\nIrradiance Improvement with Diffuse Tracking ' + title_str, fontsize=16)
 
-    def get_single_factor_df(self, single_factor, resample_rate='H'):
+    def get_single_output_df(self, single_output, resample_rate='H'):
         # Creates a dataframe by pulling out one column from each df in the df_dict.  Plotting is a bit easier when all
-        # columns are the same factor.
-        # E.G. get_single_factor_df(df_dict, ANG_INC) copies angle of incidence values from each df in df_dict and
+        # columns are the same output.
+        # E.G. get_single_output_df(df_dict, ANG_INC) copies angle of incidence values from each df in df_dict and
         # creates a new df.  Column names are the simulation variant names.
-        single_factor_df = pd.DataFrame(
-            {(str(self.variant_parameter_map[r[0]]) + self.parameter_name): r[1][single_factor].resample(resample_rate).sum()
+        single_output_df = pd.DataFrame(
+            {(str(self.variant_output_map[r[0]]) + self.output_name): r[1][single_output].resample(resample_rate).sum()
              for r in self.results_dict.iteritems()})
-        return single_factor_df
+        return single_output_df
 
-    def plot_single_factor_multiple_days(self, single_factor, days_list=SOLSTICES, title_str=''):
+    def plot_single_output_multiple_days(self, single_output, days_list=SOLSTICES, title_str=''):
         # Output: graph with subplots for each day
         # Inputs: df_dict: dict of dataframes of PVsyst result
-        #        single_factor: keyword name of data to plot
+        #        single_output: keyword name of data to plot
         #        days_list: list of datetimes as strings in format %Y-%m-%d; used for subplots' titles
-        single_factor_df = self.get_single_factor_df(single_factor)
-        legend_list = list(single_factor_df.columns)
-        y_info = get_y_axis_info(single_factor)
+        single_output_df = self.get_single_output_df(single_output)
+        legend_list = list(single_output_df.columns)
+        y_info = get_y_axis_info(single_output)
         plt.figure(figsize=(8, 15))
-        plt.suptitle(self.location + ': ' + single_factor + '\n' + title_str, fontsize=16)
+        plt.suptitle(self.location + ': ' + single_output + '\n' + title_str, fontsize=16)
 
         ax = []
         for d in range(1, len(days_list) + 1):
@@ -328,7 +328,7 @@ class BatchPVSystResults(object):
             else:
                 ax.append(plt.subplot(len(days_list), 1, d, sharex=ax[0], sharey=ax[0]))
             plt.grid(True, which='major', axis='x')
-            ax[d - 1].plot(single_factor_df[days_list[d - 1]].index.hour, single_factor_df[days_list[d - 1]]/y_info[SCALE],
+            ax[d - 1].plot(single_output_df[days_list[d - 1]].index.hour, single_output_df[days_list[d - 1]]/y_info[SCALE],
                            marker='.')
             # if show_flat == True:
             #     ax[d - 1].plot(flat_df[days_list[d - 1]].index.hour, flat_df[days_list[d - 1]], 'k--')
@@ -340,29 +340,29 @@ class BatchPVSystResults(object):
         ax[0].set_xticks([0, 6, 12, 18, 24])
         ax[0].set_ylim(y_info[LIM])
 
-    def plot_single_factor_hourly(self, single_factor, variant, title_str=''):
-        # Output: graph plotting hourly values of single_factor
-        # Inputs: single_factor: keyword name of data to plot
+    def plot_single_output_hourly(self, single_output, variant, title_str=''):
+        # Output: graph plotting hourly values of single_output
+        # Inputs: single_output: keyword name of data to plot
         #        (optional) backtracking: set False if you want no backtacking
         #        (optional) show_flat: set True if you also want to plot results from "flat" simulation
-        plt.plot(self.results_dict[variant][single_factor], 'b.')
+        plt.plot(self.results_dict[variant][single_output], 'b.')
         # plt.figure(figsize=(15, 8))
-        plt.title(self.location + ': ' + single_factor + '\n' +
+        plt.title(self.location + ': ' + single_output + '\n' +
                   title_str, fontsize=16)
 
-    def compare_single_factor_to_baseline(self, single_factor, baseline_var=None, resample_rate='H', diff='rel'):
+    def compare_single_output_to_baseline(self, single_output, baseline_var=None, resample_rate='H', diff='rel'):
         if baseline_var is None:
             baseline_var = self.variant_list[0]
         if diff == 'abs':  # find absolute difference (i.e. variant - baseline)
-            project_diff = pd.DataFrame({(str(self.variant_parameter_map[r[0]])+self.parameter_name):
-                                              r[1][single_factor].resample(resample_rate).sum() -
-                                              self.results_dict[baseline_var][single_factor].resample(resample_rate).sum()
+            project_diff = pd.DataFrame({(str(self.variant_output_map[r[0]])+self.output_name):
+                                              r[1][single_output].resample(resample_rate).sum() -
+                                              self.results_dict[baseline_var][single_output].resample(resample_rate).sum()
                                             for r in self.results_dict.iteritems()})
         elif diff == 'rel':  # find relative difference (i.e. ratio)
-            project_diff = pd.DataFrame({(str(self.variant_parameter_map[r[0]]) + self.parameter_name):
-                                        (r[1][single_factor].resample(resample_rate).sum() -
-                                            self.results_dict[baseline_var][single_factor].resample(resample_rate).sum()) /
-                                        self.results_dict[baseline_var][single_factor].resample(resample_rate).sum()
+            project_diff = pd.DataFrame({(str(self.variant_output_map[r[0]]) + self.output_name):
+                                        (r[1][single_output].resample(resample_rate).sum() -
+                                            self.results_dict[baseline_var][single_output].resample(resample_rate).sum()) /
+                                        self.results_dict[baseline_var][single_output].resample(resample_rate).sum()
                                             for r in self.results_dict.iteritems()})
         else:
             print 'diff arg must be rel or abs'
@@ -371,15 +371,15 @@ class BatchPVSystResults(object):
         #     'rel': ' (Variant - Baseline) / Baseline'
         # }
         # # plot:
-        # plot_generic_df(project_diff, single_factor, is_ratio=True,
+        # plot_generic_df(project_diff, single_output, is_ratio=True,
         #                 title_str=title_dict[diff] + '\n' + 'Baseline: ' +
-        #                           str(self.variant_parameter_map[baseline_var]) + self.parameter_name)
+        #                           str(self.variant_output_map[baseline_var]) + self.output_name)
 
         return project_diff
 
 
-def plot_generic_df(df, single_factor, is_ratio=False, title_str='', show_neg=False):
-    y_info = get_y_axis_info(single_factor, is_ratio)
+def plot_generic_df(df, single_output, is_ratio=False, title_str='', show_neg=False):
+    y_info = get_y_axis_info(single_output, is_ratio)
     for c in df.columns:
         plt.plot(df.index, df[c]/y_info[SCALE], marker='.')
     plt.legend(df.columns, loc='best')
@@ -388,15 +388,15 @@ def plot_generic_df(df, single_factor, is_ratio=False, title_str='', show_neg=Fa
     # else:
     #     plt.ylim(y_info[LIM])
     plt.ylabel(y_info[UNITS])
-    plt.title(single_factor + ' ' + title_str)
+    plt.title(single_output + ' ' + title_str)
 
 
 def compare_batches_to_baseline(batches_list, variants_list, params_list, names_list, baseline_series=None, resample_rate='H', diff='rel'):
     # Compare any result in any batch to any baseline batch.
     # User's responsbility to compare results that mean something.
-    # ORDER MATTERS for batches_list, factors_list, variants_list, and params_list!!
-    # e.g. this method will compare the factor[i] of variant[i] of the batch[i] with
-    # the factor[i+1] of variant[i+1] of batch[i+1], etc.
+    # ORDER MATTERS for batches_list, outputs_list, variants_list, and params_list!!
+    # e.g. this method will compare the output[i] of variant[i] of the batch[i] with
+    # the output[i+1] of variant[i+1] of batch[i+1], etc.
 
     if baseline_series is None:
         baseline_series = batches_list[0].results_dict[variants_list[0]][params_list[0]]  # df
@@ -419,10 +419,10 @@ def compare_batches_to_baseline(batches_list, variants_list, params_list, names_
         'rel': '\n' + ' (Variant - Baseline) / Baseline',
     }
     # # plot:
-    # plot_generic_df(project_diff, factors_list, is_ratio=True,
+    # plot_generic_df(project_diff, outputs_list, is_ratio=True,
     #                 title_str=title_dict[diff] + '\n' + 'Baseline: ' +
-    #                           str(self.variant_parameter_map[baseline_series]) + self.parameter_name)
-    plt.plot(project_diff, marker='.')
+    #                           str(self.variant_output_map[baseline_series]) + self.output_name)
+    plt.plot(project_diff, marker='o', mec='None')
     plt.legend(project_diff.columns, loc='best')
     plt.ylabel(params_list[0])
     # plt.title(title_dict[diff] + '\n' + 'Baseline: ' +
@@ -431,7 +431,7 @@ def compare_batches_to_baseline(batches_list, variants_list, params_list, names_
     return project_diff
 
 
-def compare_single_factor_across_batches(batches_list, variants_list, params_list, single_factor, days_list=SOLSTICES):
+def compare_single_output_across_batches(batches_list, variants_list, params_list, single_output, days_list=SOLSTICES):
     # ORDER MATTERS for batches_list, variants_list, and params_list!!
     # e.g. this method will compare the param[i] of variant[i] of the batch[i] with
     # the param[i+1] of variant[i+1] of batch[i+1], etc.
@@ -440,12 +440,12 @@ def compare_single_factor_across_batches(batches_list, variants_list, params_lis
     for b in range(len(batches_list)):
         results_df_list.append(batches_list[b].results_dict.get(variants_list[b]))
         # legend_list.append(batches_list[b].location[:11] +
-        #                    str(batches_list[b].variant_parameter_map[variants_list[b]]) +
-        #                    batches_list[b].parameter_name)
+        #                    str(batches_list[b].variant_output_map[variants_list[b]]) +
+        #                    batches_list[b].output_name)
 
     plt.figure(figsize=(8, 15))
-    plt.suptitle(single_factor, fontsize=16)
-    y_info = get_y_axis_info(single_factor)
+    plt.suptitle(single_output, fontsize=16)
+    y_info = get_y_axis_info(single_output)
 
     ax = []
     for d in range(1, len(days_list) + 1):
@@ -455,7 +455,7 @@ def compare_single_factor_across_batches(batches_list, variants_list, params_lis
         else:
             ax.append(plt.subplot(len(days_list), 1, d, sharex=ax[0], sharey=ax[0]))
         plt.grid(True, which='major', axis='x')
-        [ax[d - 1].plot(r[days_list[d - 1]].index.hour, r.loc[days_list[d - 1], single_factor]/y_info[SCALE])
+        [ax[d - 1].plot(r[days_list[d - 1]].index.hour, r.loc[days_list[d - 1], single_output]/y_info[SCALE])
          for r in results_df_list]
         ax[d - 1].set_title(days_list[d - 1], fontsize=12)
 
@@ -466,24 +466,24 @@ def compare_single_factor_across_batches(batches_list, variants_list, params_lis
     ax[0].legend(params_list, loc='lower right', fontsize=9)
 
 
-def get_y_axis_info(single_factor):
-    if single_factor in factors_list:
+def get_y_axis_info(single_output):
+    if single_output in outputs_list:
         scale_by = 1.0
-        ylim = factors_range
-        units = 'factor'
-    elif single_factor in irradiance_list:
+        ylim = outputs_range
+        units = 'output'
+    elif single_output in irradiance_list:
         scale_by = 1.0
         ylim = irradiance_range
         units = 'Wh/m2'
-    elif single_factor in angles_list:
+    elif single_output in angles_list:
         scale_by = 1.0
         ylim = angles_range
         units = 'Angle (deg)'
-    elif single_factor in boolean_list:
+    elif single_output in boolean_list:
         scale_by = 1.0
         ylim = boolean_range
         units = '1 = True'
-    elif single_factor in energy_list:
+    elif single_output in energy_list:
         scale_by = 1000.0
         ylim = energy_range
         units = 'kWh'
@@ -522,7 +522,7 @@ def get_daytime_df(df, threshold=10.0):
 
 #test:
 # cedar_test = BatchPVSystResults('Cedar City Municipal Ap', 'track', [60, 45, 50, 55], ['0', 'A', '9', 'B'])
-# plot_generic_df(cedar_test.compare_single_factor_to_baseline(ENERGY_ARRAY, baseline_var='0', resample_rate='M'), ENERGY_ARRAY)
+# plot_generic_df(cedar_test.compare_single_output_to_baseline(ENERGY_ARRAY, baseline_var='0', resample_rate='M'), ENERGY_ARRAY)
 
 
 
@@ -532,9 +532,9 @@ def get_daytime_df(df, threshold=10.0):
 
 
 # pvsyst_results = BatchPVSystResults('Hayward Air Term')
-# pvsyst_results.plot_single_factor_multiple_days(ANG_TRACK, backtracking=True, show_flat=False)
-# pvsyst_results.plot_single_factor_multiple_days(SF_DIRECT, backtracking=True, show_flat=True)
-# pvsyst_results.plot_single_factor_multiple_days(SF_DIFF_S, backtracking=True, show_flat=True)
+# pvsyst_results.plot_single_output_multiple_days(ANG_TRACK, backtracking=True, show_flat=False)
+# pvsyst_results.plot_single_output_multiple_days(SF_DIRECT, backtracking=True, show_flat=True)
+# pvsyst_results.plot_single_output_multiple_days(SF_DIFF_S, backtracking=True, show_flat=True)
 # cloudy_days = pvsyst_results.sort_diffuse_days(pvsyst_results.backtrack_results['1'],
 #                                                is_diffuse=True).index[:4].strftime('%Y-%m-%d')
 # partly_cloudy_days = pvsyst_results.sort_diffuse_days(pvsyst_results.backtrack_results['1'],
@@ -542,14 +542,14 @@ def get_daytime_df(df, threshold=10.0):
 #                                                       is_diffuse=True).index[:4].strftime('%Y-%m-%d')
 # clear_days = pvsyst_results.sort_diffuse_days(pvsyst_results.backtrack_results['1'],
 #                                               is_diffuse=False).index[:4].strftime('%Y-%m-%d')
-# pvsyst_results.plot_single_factor_multiple_days(E_GLOBAL, days_list=cloudy_days,
+# pvsyst_results.plot_single_output_multiple_days(E_GLOBAL, days_list=cloudy_days,
 #                                                 backtracking=True, show_flat=True, title_str='on Cloudy Days')
-# pvsyst_results.plot_single_factor_multiple_days(E_GLOBAL, days_list=clear_days,
+# pvsyst_results.plot_single_output_multiple_days(E_GLOBAL, days_list=clear_days,
 #                                                 backtracking=True, show_flat=True, title_str='on Clear Days')
-# pvsyst_results.plot_single_factor_multiple_days(DT_ANG_TRACK, days_list=partly_cloudy_days,
+# pvsyst_results.plot_single_output_multiple_days(DT_ANG_TRACK, days_list=partly_cloudy_days,
 #                                                 backtracking=True, show_flat=False, title_str='on Partly Cloudy Days')
 #
 # pvsyst_results.plot_diffuse_tracking_improvement('A', backtracking=True)
 # pvsyst_results.plot_diffuse_tracking_improvement('M', backtracking=True)
 #
-# pvsyst_results.plot_single_factor_hourly(SF_DIRECT, backtracking=False)
+# pvsyst_results.plot_single_output_hourly(SF_DIRECT, backtracking=False)

@@ -13,8 +13,6 @@ VC9: bays_35GCR_b_50t *
 VCA: bays_35GCR_b_45t
 VCB: bays_35GCR_b_55t
 VCC: (first solar panel)
-
-
 VCD: bays_40GCR_b_50t
 VCE: bays_45GCR_b
 VCF: bays_45GCR_b_50t
@@ -24,3 +22,16 @@ VCI: bays_35GCR_b_2rows
 VCJ: bays_35GCR_1row
 VCK: bays_35GCR_simple90_5r
 VCL: bays_35GCR_simple90_2r
+VCM:
+VCN:
+VCO:
+VCP:
+VCQ:
+VCR:
+VCS:
+VCT:
+VCU:
+VCV:
+VCX:
+VCY:
+VCZ:
