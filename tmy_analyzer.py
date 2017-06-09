@@ -21,6 +21,8 @@ import time as time
 # global variables
 TMY_DATE = 'Date (MM/DD/YYYY)'
 TMY_TIME = 'Time (HH:MM)'
+FLAT_YEAR = 1990
+FLAT_DATETIME = 'Flat DateTime'
 # by NREL definitions, GHI, DNI, DHI are total radiation received for the hour ending in the TMY timestamp
 GHI = 'GHI (W/m^2)'  # global horizontal
 GHI_u = 'GHI uncert (%)'
@@ -28,6 +30,7 @@ DNI = 'DNI (W/m^2)'  # direct normal
 DNI_u = 'DNI uncert (%)'
 DHI = 'DHI (W/m^2)'  # diffuse horizontal
 DHI_u = 'DHI uncert (%)'
+DHI_r = 'DHI random gen'
 DB = 'Dry-bulb (C)'
 DP = 'Dew-point (C)'
 DIFF_RATIO = 'DHI/GHI'
@@ -47,7 +50,7 @@ ELEV = 'Elevation (m)'
 def get_stations_from_file(filename):
     df = pd.read_csv(filename, sep=',', header=None, names=[ID, LOCATION, U_CLASS])
     df[U_CLASS] = [c.partition(U_CLASS+' ')[2] for c in df[U_CLASS]]
-    df.set_index(ID, inplace=True)
+    # df.set_index(ID, inplace=True)  # why use station ID as indexer?
     return df
 
 STATIONS_DF = get_stations_from_file(STATION_LIST_FILENAME)
@@ -82,8 +85,10 @@ def query_by_latlong(df, lat, long, radius=0.5):
     return df[(df[LAT] <= (float(lat)+float(radius))) & (df[LAT] >= (float(lat)-float(radius))) &
               (df[LONG] <= (float(long)+float(radius))) & (df[LONG] >= (float(long)-float(radius)))]
 
-def save_df_to_file(df, filename):
-    df.to_csv(filename+'.csv', sep=',')
+def save_df_to_file(df, filename, usecols=None):
+    if usecols is None:
+        usecols = df.columns
+    df.to_csv(filename+'.csv', sep=',', columns=usecols, index_label='DateTimeIndex')
 
 def read_site_info(filename):
     return pd.read_csv(filename, sep=',')
@@ -114,6 +119,7 @@ class tmy3Data(object):
         new_datetime = [dt.datetime.strptime((self.tmy_df[TMY_DATE][i] + ' ' + new_hours_str[i]), '%m/%d/%Y %H:%M')
                             for i in range(len(new_hours_str))]
         self.tmy_df.index = new_datetime
+        self.tmy_df[FLAT_DATETIME] = [t.replace(year=FLAT_YEAR) for t in new_datetime]
         self.get_diffuse_ratio()
         print "loaded: " + self.location
 
@@ -138,6 +144,13 @@ class tmy3Data(object):
                                  pd.DataFrame({
                                         DIFF_RATIO: h_diffuse_ratio,
                                     })], axis=1)
+
+    def make_fake_DHI(self):
+            self.tmy_df[DHI_r] = [np.random.uniform(0.1, 1.0) * g for g in self.tmy_df[GHI]]
+
+    def export_for_pvsyst(self, filename):
+        self.make_fake_DHI()
+        self.tmy_df.to_csv(filename + '.csv', sep=',', columns=[FLAT_DATETIME, GHI, DNI, DHI_r, DB, DP])
 
     def count_over_threshold(self, factor, threshold):
         over_threshold_df = self.tmy_df[self.tmy_df[factor] >= threshold]
@@ -165,7 +178,8 @@ class tmy3Batch(tmy3Data):
         self.batch_dict = {}
         self.directory = directory
         self.batch_site_info_df = pd.concat([(STATIONS_DF[STATIONS_DF.index.isin(stations_list)]),
-                                            pd.DataFrame(columns=[CITY, STATE, TZ, LAT, LONG, ELEV])])
+                                            pd.DataFrame(columns=[CITY, STATE, TZ, LAT, LONG, ELEV, DIFF_RATIO])])
+        self.load_data()
 
     def load_data(self):
         if self.directory is None:
@@ -174,13 +188,17 @@ class tmy3Batch(tmy3Data):
             prefix = self.directory + '/'
         for s in self.stations_list:
             data = tmy3Data(prefix + str(s) + FILENAME_SUFFIX)
-            self.batch_dict[data.location] = data
+            self.batch_dict[data.location] = data  # tmy3Data object
             self.batch_site_info_df.loc[data.station_id, CITY] = data.city
             self.batch_site_info_df.loc[data.station_id, STATE] = data.state
             self.batch_site_info_df.loc[data.station_id, TZ] = data.timezone
             self.batch_site_info_df.loc[data.station_id, LAT] = data.latitude
             self.batch_site_info_df.loc[data.station_id, LONG] = data.longitude
             self.batch_site_info_df.loc[data.station_id, ELEV] = data.elevation
+
+    def compare_diffuse_ratios(self):
+        self.batch_site_info_df.loc[:, DIFF_RATIO] = [self.batch_dict[i].tmy_df[DIFF_RATIO].mean() for i in self.batch_site_info_df.index]
+
 
 
     def order_stations_by_factor(self, factor, sort_ascending=False):
