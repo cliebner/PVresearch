@@ -237,8 +237,8 @@ class PVSystResult(object):
         self.location = location
         self.result_file = hourly_results_file
         self.separator = ';'  # for single PVsyst results
+        self.is_tracking = False
         self.result_df = self.unpack_single_pvsyst_result()
-        self.is_tracking = ANG_TRACK in self.result_df.columns
         self.get_site_diffuseness()
         # self.daytime_df_index = self.get_daytime_df().index
         # self.avg_diffuse = self.result_df.loc[self.daytime_df_index, self.H_DIFF_RATIO].mean()
@@ -267,13 +267,11 @@ class PVSystResult(object):
                     result_dict[u].append(dt.datetime.strptime(value, '%d/%m/%y %H:%M'))
                 else:
                     result_dict[u].append(float(value))
-        #convert date to datetime object
-        # datetime = [dt.datetime.strptime(d, '%d/%m/%y %H:%M') for d in result_dict[pvsyst_name_lookup[DATE]]]
-
         result_df = pd.DataFrame.from_dict(result_dict, orient='columns')
         useful_rename = {p[0]: p[1] for p in pvsyst_rename.iteritems() if p[0] in usable_names}
         result_df.rename(columns=useful_rename, inplace=True)
         result_df.set_index(DATE, inplace=True)
+        self.is_tracking = ANG_TRACK in result_df.columns
 
         # Read in PVSyst results file as data frame:
         # result_df = pd.read_csv(self.result_file, sep=self.separator, header=0,
@@ -408,7 +406,9 @@ class PVSystBatchSim(PVSystResult):
         self.batch_filename = None
         self.batch_file_created = False
         self.batch_file_read = False
-        self.batch_dict = {x: [] for x in PVSYST_BATCH_ORDER}
+        # self.batch_dict = {x: [] for x in PVSYST_BATCH_ORDER}
+        self.batch_dict = {}
+        self.read_variables = []
         self.tracking_model = None
         self.results_dict = {}  # a dict of PVSystResult objects
         self.results_panel = None
@@ -437,8 +437,13 @@ class PVSystBatchSim(PVSystResult):
             try:
                 self.results_dict[self.batch_dict[BATCH_COMMENT][h]] = \
                     PVSystResult(self.location, self.batch_dict[BATCH_FILENAME][h])
+                # to each result df, add columns to describe the variables in play for that simulation result
+                # e.g. if panel tilt is a variable, this adds a column showing constant panel tilt for any simulation df
+                for v in self.read_variables:
+                    self.results_dict[self.batch_dict[BATCH_COMMENT][h]].result_df[v] = self.batch_dict[v][h]
             except IOError:
                 print self.batch_dict[BATCH_COMMENT][h] + ' does not exist'
+
         self.results_panel = pd.Panel.from_dict({r[0]: r[1].result_df for r in self.results_dict.iteritems()}, orient='minor')
 
         self.tracking_model = self.find_tracking_model()
@@ -472,15 +477,13 @@ class PVSystBatchSim(PVSystResult):
         col_lines = [b.split(';') for b in file_lines[i: i + 3]]
         num_cols = len([c for c in col_lines[0] if len(c) > 0])
         col_names = ['\n'.join([l[c] for l in col_lines]) for c in range(num_cols)]
+        self.batch_dict = {c: [] for c in col_names}
 
         # count number of simulations (rows):
         sim_rows = [b.split(';')[0:num_cols] for b in file_lines if 'SIM_' in b[0:4]]
 
         # for each row of simulations, skipping the first one bc PVsyst does something weird with the first SIM
         for r in range(1, len(sim_rows)):
-            # if 'N' in sim_rows[r]:
-            #     pass
-            # else:
             for c in range(len(col_names)):  # for each column
                 value = sim_rows[r][c]
                 if value == '':
@@ -490,6 +493,7 @@ class PVSystBatchSim(PVSystResult):
                 self.batch_dict[col_names[c]].append(value)
 
         self.batch_file_read = True
+        self.read_variables = set(self.batch_dict.keys()).intersection(set(PVSYST_BATCH_VARIABLES))
 
     def create_batch_file(self, save_as='batch_filename', base_variant='VC', description='None',
                           variables=PVSYST_BATCH_PARAMS_DICT):
@@ -589,11 +593,19 @@ class PVSystBatchSim(PVSystResult):
         # batch_panel = pd.Panel.from_dict({r[0]: r[1].result_df for r in self.results_dict.iteritems()}, orient='minor')
 
         # only look at daytime hours
-        day_index = self.results_dict.values()[0].result_df[self.results_dict.values()[0].result_df[E_GLOBAL] > 1.0].index
+        day_index = self.results_dict.values()[0].result_df[self.results_dict.values()[0].result_df[H_GLOBAL] > 1.0].index
 
         # find max value and its index
         max_value = self.results_panel.loc[opt_param, day_index, :].apply(np.max, axis=1)
         max_minoraxis = self.results_panel.loc[opt_param, day_index, :].idxmax(axis=1)
+        is_btrk = max_minoraxis == self.tracking_model.keys()[0]
+
+        fixed_tilt = pd.Series(self.results_panel[BATCH_PLANE_TILT, :, :].lookup(max_minoraxis.index, max_minoraxis),
+                               index=self.results_panel.major_axis)
+        tracking = pd.Series(self.results_panel[ANG_TRACK, :, :].lookup(max_minoraxis.index, max_minoraxis),
+                               index=self.results_panel.major_axis)
+        tracker_angle = fixed_tilt.mask(is_btrk, other=tracking).apply(float)
+
 
         # create map of simulation names to panel tilt.
         # for backtracking simulation, panel tilt will be empty, so force it to a bogus number we can mask out later:
