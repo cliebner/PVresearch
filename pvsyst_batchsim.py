@@ -64,6 +64,7 @@ IS_BTRK = 'Backtracking?'
 IS_FORCED_BTRK = 'Forced backtracking?'
 IS_FORCED_ZERO = 'Forced to zero?'
 IS_TRK = 'Standard tracking?'
+SIM_LOOKUP = 'Sim lookup'
 DT_GAIN = 'DiffTrack Gain'
 DT_GAIN_FACTOR = 'DiffTrack Gain Factor'
 DT_ANG_TRACK = 'DiffTrack Tracker Angle'
@@ -588,142 +589,163 @@ class PVSystBatchSim(PVSystResult):
             print 'no tracking model loaded'
             return None
 
-        # create a Panel where items = PVSyst result column names, major_axis= datetime, minor_axis = variants
-        # to slice a Panel: panel.loc[item, major_axis, minor_axis]
-        # batch_panel = pd.Panel.from_dict({r[0]: r[1].result_df for r in self.results_dict.iteritems()}, orient='minor')
-
         # only look at daytime hours
         day_index = self.results_dict.values()[0].result_df[self.results_dict.values()[0].result_df[H_GLOBAL] > 1.0].index
 
-        # find max value and its index
-        max_value = self.results_panel.loc[opt_param, day_index, :].apply(np.max, axis=1)
-        max_minoraxis = self.results_panel.loc[opt_param, day_index, :].idxmax(axis=1)
-        is_btrk = max_minoraxis == self.tracking_model.keys()[0]
+        # initialize a dataframe template that all TOP models will use:
+        # ASSUMES: MET file and SITE files are held constant for all simulations in the batch :(
+        # irradiance data: should not change in each model
+        # booleans: flags to show if tracking is best, if tracking is forced, and if flat is forced.
+        #           shows when masks are applied
+        # angles: only ANG_TOP and ANG_TOP_INC change each time
+        # effective irradiance: change as ANG_TOP_INC changes
+        # DT_xx: changes with each TOP
+        top_template = pd.DataFrame(index=day_index,
+                                   columns=list({H_DIFF_RATIO, H_GLOBAL, H_DIFFUSE,
+                                                 opt_param,
+                                                 IS_BTRK, IS_FORCED_BTRK, IS_FORCED_ZERO, SIM_LOOKUP,
+                                                 ANG_FIXED, ANG_TRACK, ANG_TOP, ANG_INC,
+                                                 E_GLOBAL, E_DIRECT, E_DIFF_S, E_DIFF_G,
+                                                 DT_DELTA, DT_DELTA_ABS, DT_RATIO}))
+        # TOP_btrk:
+        top_btrk = top_template.copy()
+        for c in top_template.columns:
+            try:
+                top_btrk[c] = self.tracking_model.values()[0].result_df.loc[day_index, c]
+            except KeyError:
+                continue
+        # top_0: find max value and its index
+        top_0 = top_btrk.copy()
+        top_0[opt_param] = self.results_panel.loc[opt_param, day_index, :].apply(np.max, axis=1)
+        top_0[SIM_LOOKUP] = self.results_panel.loc[opt_param, day_index, :].idxmax(axis=1)
+        # top_0[IS_BTRK] = top_0[SIM_LOOKUP] == self.tracking_model.keys()[0]  # may break if there are more than 1 backtracking models in the batch!
+        top_0[ANG_FIXED] = pd.Series(self.results_panel[BATCH_PLANE_TILT, day_index, :].lookup(top_0.index, top_0[SIM_LOOKUP]),
+                               index=day_index)
+        # tracking = pd.Series(self.results_panel[ANG_TRACK, :, :].lookup(max_minoraxis.index, max_minoraxis),
+        #                        index=self.results_panel.major_axis)
+        # top_0[ANG_TOP] = top_0[ANG_FIXED].mask(top_0[IS_BTRK], other=top_btrk[ANG_TRACK]).apply(float)
 
-        fixed_tilt = pd.Series(self.results_panel[BATCH_PLANE_TILT, :, :].lookup(max_minoraxis.index, max_minoraxis),
-                               index=self.results_panel.major_axis)
-        tracking = pd.Series(self.results_panel[ANG_TRACK, :, :].lookup(max_minoraxis.index, max_minoraxis),
-                               index=self.results_panel.major_axis)
-        tracker_angle = fixed_tilt.mask(is_btrk, other=tracking).apply(float)
+        constraints = {
+            IS_BTRK: {
+                'series': lambda x: x[ANG_FIXED],
+                'conditional': lambda x: x[SIM_LOOKUP] == self.tracking_model.keys()[0],
+                'other': top_btrk[ANG_TRACK],
+                'sim': self.tracking_model.keys()[0]
+            },
+            IS_FORCED_BTRK: {
+                'series': lambda x: x[ANG_TOP],
+                'conditional': lambda x: (~x[IS_BTRK] & (abs(x[ANG_FIXED]) > abs(x[ANG_TRACK]))),
+                'other': top_btrk[ANG_TRACK],
+                'sim': self.tracking_model.keys()[0]
+            },
+            IS_FORCED_ZERO: {
+                'series': lambda x: x[ANG_TOP],
+                'conditional': lambda x: ((x.index.hour < 12) & (x[ANG_TOP] > 0.0)) | ((x.index.hour > 12) & (x[ANG_TOP] < 0.0)),
+                'other': 0.0,
+                'sim': self.batch_dict[BATCH_COMMENT][self.batch_dict[BATCH_PLANE_TILT].index(0.0)]
+            }
+        }
+        constraint_order = [IS_BTRK, IS_FORCED_BTRK, IS_FORCED_ZERO]
+        top_dict = {c: top_0.copy() for c in constraint_order}
+        i = 0
+        for c in constraint_order:
+            top_dict[c].loc[:, c] = constraints[c]['conditional'](top_dict[c])
+            top_dict[c].loc[:, ANG_TOP] = \
+                constraints[c]['series'](top_dict[c]).mask(constraints[c]['conditional'](top_dict[c]),
+                                                           other=constraints[c]['other'], inplace=False).apply(float)
+            top_dict[c].loc[:, SIM_LOOKUP].mask(constraints[c]['conditional'](top_dict[c]),
+                                                other=constraints[c]['sim'], inplace=False)
+            for p in [ANG_INC, E_GLOBAL, E_DIRECT, E_DIFF_S, E_DIFF_G]:
+                top_dict[c].loc[:, p] = pd.Series(self.results_panel[p].lookup(top_dict[c].index, top_dict[c].loc[:, SIM_LOOKUP]), index=day_index)
+            top_dict[c].loc[:, DT_DELTA] = top_dict[c].loc[:, ANG_TOP] - top_btrk.loc[:, ANG_TRACK]
+            top_dict[c].loc[:, DT_DELTA_ABS] = top_dict[c].loc[:, DT_DELTA].apply(np.abs)
+            top_dict[c].loc[:, DT_RATIO] = top_dict[c].loc[:, ANG_TOP] / top_btrk.loc[:, ANG_TRACK]
 
+            # initialize next df as a copy of this df:
+            if i < len(constraint_order) - 1:
+                top_dict[constraint_order[i + 1]] = top_dict[constraint_order[i]].copy()
+                i += 1
 
-        # create map of simulation names to panel tilt.
-        # for backtracking simulation, panel tilt will be empty, so force it to a bogus number we can mask out later:
-        panel_tilt_angles = [99.0 if t is '' else t for t in self.batch_dict[BATCH_PLANE_TILT]]
-        panel_tilt_map = dict(zip(self.batch_dict[BATCH_COMMENT], panel_tilt_angles))
-
-        TOP_btrk = self.tracking_model.values()[0].result_df.loc[day_index, :]
-        TOP_0_model = pd.DataFrame(index=day_index,
-                                 columns=list({H_DIFF_RATIO, H_GLOBAL, H_DIFFUSE,
-                                               opt_param, ANG_FIXED, ANG_TRACK,
-                                               IS_BTRK, IS_FORCED_BTRK, IS_FORCED_ZERO,
-                                               ANG_TOP, ANG_TOP_INC,
-                                               E_GLOBAL, E_DIRECT, E_DIFF_S, E_DIFF_G,
-                                               DT_DELTA, DT_DELTA_ABS, DT_RATIO}))
-
-        TOP_0_model[H_DIFF_RATIO] = self.results_panel.loc[H_DIFF_RATIO, day_index, self.results_dict.keys()[0]]
-        TOP_0_model[H_GLOBAL] = self.results_panel.loc[H_GLOBAL, day_index, self.results_dict.keys()[0]]
-        TOP_0_model[H_DIFFUSE] = self.results_panel.loc[H_DIFFUSE, day_index, self.results_dict.keys()[0]]
-        TOP_0_model[opt_param] = max_value
-        # 1st pass: just pick the angle that maximizes the opt_param (apply constraints later):
-        TOP_0_model[ANG_FIXED] = max_minoraxis.map(panel_tilt_map)
-        TOP_0_model[ANG_TRACK] = self.tracking_model.values()[0].result_df.loc[day_index, ANG_TRACK]
-        TOP_0_model[IS_BTRK] = max_minoraxis == self.tracking_model.keys()[0]
-        TOP_0_model[ANG_TOP] = TOP_0_model[ANG_FIXED].mask(TOP_0_model[IS_BTRK],
-                                                         other=TOP_0_model[ANG_TRACK], inplace=False)
-        TOP_0_model[ANG_TOP_INC] = pd.Series(self.results_panel[ANG_INC].lookup(max_minoraxis.index, max_minoraxis),
-                                             index=day_index)
-        TOP_0_model[E_GLOBAL] = pd.Series(self.results_panel[E_GLOBAL].lookup(max_minoraxis.index, max_minoraxis),
-                                             index=day_index)
-        TOP_0_model[E_DIRECT] = pd.Series(self.results_panel[E_DIRECT].lookup(max_minoraxis.index, max_minoraxis),
-                                          index=day_index)
-        TOP_0_model[E_DIFF_S] = pd.Series(self.results_panel[E_DIFF_S].lookup(max_minoraxis.index, max_minoraxis),
-                                             index=day_index)
-        TOP_0_model[E_DIFF_G] = pd.Series(self.results_panel[E_DIFF_G].lookup(max_minoraxis.index, max_minoraxis),
-                                          index=day_index)
-        TOP_0_model[DT_DELTA] = TOP_0_model.loc[:, ANG_TOP] - TOP_btrk.loc[:, ANG_TRACK]
-        TOP_0_model[DT_DELTA_ABS] = TOP_0_model[DT_DELTA].apply(np.abs)
-        TOP_0_model[DT_RATIO] = TOP_0_model[ANG_TOP] / TOP_btrk[ANG_TRACK]
-
-        # constraint 1:
-        # don't let TOP pick an angle more steep than backtracking to prevent unwanted shading
-        # force to backtracking angle
-        # TODO: check if this is necessary if we optimize on E_ARRAY
-        TOP_1_model = TOP_0_model.copy()
-        # is_outside_btrk_range =
-        TOP_1_model[IS_FORCED_BTRK] = ~TOP_0_model[IS_BTRK] & (abs(TOP_0_model[ANG_FIXED]) > abs(TOP_0_model[ANG_TRACK]))
-        TOP_1_model[ANG_TOP] = TOP_0_model[ANG_TOP].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[ANG_TRACK], inplace=False)
-
-        TOP_1_model[ANG_TOP_INC] = TOP_0_model[ANG_TOP_INC].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[ANG_INC],
-                                                                 inplace=False)
-        TOP_1_model[E_GLOBAL] = TOP_0_model[E_GLOBAL].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_GLOBAL],
-                                                                 inplace=False)
-        TOP_1_model[E_DIRECT] = TOP_0_model[E_DIRECT].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_DIRECT],
-                                                           inplace=False)
-        TOP_1_model[E_DIFF_S] = TOP_0_model[E_DIFF_S].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_DIFF_S],
-                                                           inplace=False)
-        TOP_1_model[E_DIFF_G] = TOP_0_model[E_DIFF_G].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_DIFF_G],
-                                                           inplace=False)
-        TOP_1_model[DT_DELTA] = TOP_1_model.loc[:, ANG_TOP] - TOP_btrk.loc[:, ANG_TRACK]
-        TOP_1_model[DT_DELTA_ABS] = TOP_1_model[DT_DELTA].apply(np.abs)
-        TOP_1_model[DT_RATIO] = TOP_1_model.loc[:, ANG_TOP] / TOP_btrk.loc[:, ANG_TRACK]
-
-        # constraint 2:
-        # don't let TOP pick an angle inappropriate for time of day, e.g. +10 deg for 10am.
-        # force to 0.0 deg
-        TOP_2_model = TOP_1_model.copy()
-        minoraxis_0deg = dict(zip(panel_tilt_map.values(), panel_tilt_map.keys()))[0.0]
-        # is_facing_wrong_azimuth = (TOP_model[IS_BTRK] == False) \
-        #                           & (((TOP_model.index.hour < 12) & (TOP_model[ANG_FIXED] > 0.0)) |
-        #                              ((TOP_model.index.hour > 12) & (TOP_model[ANG_FIXED] < 0.0)))
-        TOP_2_model[IS_FORCED_ZERO] = (~TOP_0_model[IS_BTRK] | ~TOP_1_model[IS_FORCED_BTRK]) \
-                                  & (((TOP_1_model.index.hour < 12) & (TOP_1_model[ANG_TOP] > 0.0)) |
-                                     ((TOP_1_model.index.hour > 12) & (TOP_1_model[ANG_TOP] < 0.0)))
-        # TOP_model[IS_FORCED_ZERO] = is_facing_wrong_azimuth
-        TOP_2_model[ANG_TOP] = TOP_1_model[ANG_TOP].mask(TOP_2_model[IS_FORCED_ZERO], other=0.0, inplace=False)
-        # TOP_model[ANG_TOP] = TOP_model[ANG_TOP_2].copy()
-        TOP_2_model[ANG_TOP_INC].mask(TOP_2_model[IS_FORCED_ZERO],
-                                other=self.results_panel.loc[ANG_INC, day_index, minoraxis_0deg], inplace=True)
-        TOP_2_model[E_GLOBAL] = TOP_1_model[E_GLOBAL].mask(TOP_2_model[IS_FORCED_ZERO],
-                                                           other=self.results_panel.loc[E_GLOBAL, day_index, minoraxis_0deg],
-                                                           inplace=False)
-        TOP_2_model[E_DIRECT] = TOP_1_model[E_DIRECT].mask(TOP_2_model[IS_FORCED_ZERO],
-                                                           other=self.results_panel.loc[E_DIRECT, day_index, minoraxis_0deg],
-                                                           inplace=False)
-        TOP_2_model[E_DIFF_S] = TOP_1_model[E_DIFF_S].mask(TOP_2_model[IS_FORCED_ZERO],
-                                                           other=self.results_panel.loc[E_DIFF_S, day_index, minoraxis_0deg],
-                                                           inplace=False)
-        TOP_2_model[E_DIFF_G] = TOP_1_model[E_DIFF_G].mask(TOP_2_model[IS_FORCED_ZERO],
-                                                           other=self.results_panel.loc[E_DIFF_G, day_index, minoraxis_0deg],
-                                                           inplace=False)
-        TOP_2_model[DT_DELTA] = TOP_2_model.loc[:, ANG_TOP] - TOP_btrk.loc[:, ANG_TRACK]
-        TOP_2_model[DT_DELTA_ABS] = TOP_2_model[DT_DELTA].apply(np.abs)
-        TOP_2_model[DT_RATIO] = TOP_2_model.loc[:, ANG_TOP] / TOP_btrk.loc[:, ANG_TRACK]
+        # # TOP_1: apply constraint 1:
+        # # don't let TOP pick an angle more steep than backtracking to prevent unwanted shading
+        # # force to backtracking angle
+        # # TODO: check if this is necessary if we optimize on E_ARRAY
+        # top_1 = top_0.copy()
+        # top_2 = top_0.copy()
+        #
+        #
+        #
+        # # is_outside_btrk_range =
+        # TOP_1_model[IS_FORCED_BTRK] = ~TOP_0_model[IS_BTRK] & (abs(TOP_0_model[ANG_FIXED]) > abs(TOP_0_model[ANG_TRACK]))
+        # TOP_1_model[ANG_TOP] = TOP_0_model[ANG_TOP].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[ANG_TRACK], inplace=False)
+        #
+        # TOP_1_model[ANG_TOP_INC] = TOP_0_model[ANG_TOP_INC].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[ANG_INC],
+        #                                                          inplace=False)
+        # TOP_1_model[E_GLOBAL] = TOP_0_model[E_GLOBAL].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_GLOBAL],
+        #                                                          inplace=False)
+        # TOP_1_model[E_DIRECT] = TOP_0_model[E_DIRECT].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_DIRECT],
+        #                                                    inplace=False)
+        # TOP_1_model[E_DIFF_S] = TOP_0_model[E_DIFF_S].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_DIFF_S],
+        #                                                    inplace=False)
+        # TOP_1_model[E_DIFF_G] = TOP_0_model[E_DIFF_G].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_DIFF_G],
+        #                                                    inplace=False)
+        # TOP_1_model[DT_DELTA] = TOP_1_model.loc[:, ANG_TOP] - TOP_btrk.loc[:, ANG_TRACK]
+        # TOP_1_model[DT_DELTA_ABS] = TOP_1_model[DT_DELTA].apply(np.abs)
+        # TOP_1_model[DT_RATIO] = TOP_1_model.loc[:, ANG_TOP] / TOP_btrk.loc[:, ANG_TRACK]
+        #
+        # # constraint 2:
+        # # don't let TOP pick an angle inappropriate for time of day, e.g. +10 deg for 10am.
+        # # force to 0.0 deg
+        # TOP_2_model = TOP_1_model.copy()
+        # minoraxis_0deg = dict(zip(panel_tilt_map.values(), panel_tilt_map.keys()))[0.0]
+        # # is_facing_wrong_azimuth = (TOP_model[IS_BTRK] == False) \
+        # #                           & (((TOP_model.index.hour < 12) & (TOP_model[ANG_FIXED] > 0.0)) |
+        # #                              ((TOP_model.index.hour > 12) & (TOP_model[ANG_FIXED] < 0.0)))
+        # TOP_2_model[IS_FORCED_ZERO] = (~TOP_0_model[IS_BTRK] | ~TOP_1_model[IS_FORCED_BTRK]) \
+        #                           & (((TOP_1_model.index.hour < 12) & (TOP_1_model[ANG_TOP] > 0.0)) |
+        #                              ((TOP_1_model.index.hour > 12) & (TOP_1_model[ANG_TOP] < 0.0)))
+        # # TOP_model[IS_FORCED_ZERO] = is_facing_wrong_azimuth
+        # TOP_2_model[ANG_TOP] = TOP_1_model[ANG_TOP].mask(TOP_2_model[IS_FORCED_ZERO], other=0.0, inplace=False)
+        # # TOP_model[ANG_TOP] = TOP_model[ANG_TOP_2].copy()
+        # TOP_2_model[ANG_TOP_INC].mask(TOP_2_model[IS_FORCED_ZERO],
+        #                         other=self.results_panel.loc[ANG_INC, day_index, minoraxis_0deg], inplace=True)
+        # TOP_2_model[E_GLOBAL] = TOP_1_model[E_GLOBAL].mask(TOP_2_model[IS_FORCED_ZERO],
+        #                                                    other=self.results_panel.loc[E_GLOBAL, day_index, minoraxis_0deg],
+        #                                                    inplace=False)
+        # TOP_2_model[E_DIRECT] = TOP_1_model[E_DIRECT].mask(TOP_2_model[IS_FORCED_ZERO],
+        #                                                    other=self.results_panel.loc[E_DIRECT, day_index, minoraxis_0deg],
+        #                                                    inplace=False)
+        # TOP_2_model[E_DIFF_S] = TOP_1_model[E_DIFF_S].mask(TOP_2_model[IS_FORCED_ZERO],
+        #                                                    other=self.results_panel.loc[E_DIFF_S, day_index, minoraxis_0deg],
+        #                                                    inplace=False)
+        # TOP_2_model[E_DIFF_G] = TOP_1_model[E_DIFF_G].mask(TOP_2_model[IS_FORCED_ZERO],
+        #                                                    other=self.results_panel.loc[E_DIFF_G, day_index, minoraxis_0deg],
+        #                                                    inplace=False)
+        # TOP_2_model[DT_DELTA] = TOP_2_model.loc[:, ANG_TOP] - TOP_btrk.loc[:, ANG_TRACK]
+        # TOP_2_model[DT_DELTA_ABS] = TOP_2_model[DT_DELTA].apply(np.abs)
+        # TOP_2_model[DT_RATIO] = TOP_2_model.loc[:, ANG_TOP] / TOP_btrk.loc[:, ANG_TRACK]
 
 
         plt.figure()
-        plt.plot(TOP_0_model.index.hour, TOP_0_model[ANG_TOP], mec='k', color='None', marker='o')
-        plt.plot(TOP_1_model.index.hour, TOP_1_model[ANG_TOP], mec='b', color='None', marker='o')
-        plt.plot(TOP_2_model.index.hour, TOP_2_model[ANG_TOP], mec='r', color='None', marker='o')
+        plt.plot(top_dict[IS_BTRK].index.hour, top_dict[IS_BTRK].loc[:, ANG_TOP], mec='k', color='None', marker='o')
+        plt.plot(top_dict[IS_FORCED_BTRK].index.hour, top_dict[IS_FORCED_BTRK].loc[:, ANG_TOP], mec='b', color='None', marker='o')
+        plt.plot(top_dict[IS_FORCED_ZERO].index.hour, top_dict[IS_FORCED_ZERO].loc[:, ANG_TOP], mec='r', color='None', marker='o')
         plt.title(self.location)
         plt.ylabel(ANG_TOP)
         # plt.plot(TOP_btrk.index.hour, TOP_btrk[ANG_TRACK], mec='r', color='None', marker='o')
         #
         plt.figure()
-        # plt.plot(TOP_0_model[H_DIFF_RATIO], TOP_0_model[DT_RATIO], mec='k', color='None', marker='o')
-        plt.plot(TOP_1_model[H_DIFF_RATIO], TOP_1_model[DT_RATIO], mec='b', color='None', marker='o')
-        plt.plot(TOP_2_model[H_DIFF_RATIO], TOP_2_model[DT_RATIO], mec='r', color='None', marker='o')
+        plt.plot(top_dict[IS_BTRK].loc[:, H_DIFF_RATIO], top_dict[IS_BTRK].loc[:, DT_RATIO], mec='k', color='None', marker='o')
+        plt.plot(top_dict[IS_FORCED_BTRK].loc[:, H_DIFF_RATIO], top_dict[IS_FORCED_BTRK].loc[:, DT_RATIO], mec='b', color='None', marker='o')
+        plt.plot(top_dict[IS_FORCED_ZERO].loc[:, H_DIFF_RATIO], top_dict[IS_FORCED_ZERO].loc[:, DT_RATIO], mec='r', color='None', marker='o')
         plt.title(self.location)
         plt.xlabel(H_DIFF_RATIO)
         plt.ylabel(DT_RATIO)
-        # inc_70 = TOP_model[(TOP_model[ANG_INC] >= 70.0) & (TOP_model[ANG_INC] < 72.0)]
-        # plt.plot(inc_70[H_DIFF_RATIO], inc_70[DT_DELTA_ABS], 'ro')
 
         # plt.figure(3)
         # plt.plot(TOP_model[ANG_TRACK], mec='k', color='None', marker='o')
         # plt.plot(TOP_model)
-        self.top_panel = pd.Panel.from_dict(
-            {'btrk': TOP_btrk, 0: TOP_0_model, 1: TOP_1_model, 2: TOP_2_model}, orient='minor')
+        self.top_panel = pd.Panel.from_dict(top_dict, orient='minor')
 
     def get_forced_zero(self):
         weird = self.top_panel.loc[IS_FORCED_ZERO, :, 2][self.top_panel.loc[IS_FORCED_ZERO, :, 2]]
@@ -903,7 +925,8 @@ class PVSystBatchSim(PVSystResult):
 # *** NAPA ***
 f_fixed_vc = 'VC0'
 f_backtracking_vc = 'VC1'
-f_directory = 'Napa'
+# f_directory = 'Napa'
+f_directory = 'test folder'
 f_save_as = 'Napa_TMY3_BatchParams_1.CSV'
 f_descrip = 'test'
 
@@ -937,6 +960,7 @@ francesco = PVSystBatchSim(f_directory, directory=f_directory)
 # francesco.create_batch_file(save_as=f_save_as, base_variant=f_backtracking_vc, description=f_descrip, variables=variables_dict)
 francesco.batch_filename = f_save_as
 francesco.load_data()
+francesco.get_TOP_model()
 # f_legend = []
 # for f in francesco.results_dict.iteritems():
 #     plt.plot(f[1].result_df.loc['1990-03', E_GLOBAL])
