@@ -634,7 +634,7 @@ class PVSystBatchSim(PVSystResult):
             },
             IS_FORCED_BTRK: {
                 'series': lambda x: x[ANG_TOP],
-                'conditional': lambda x: (~x[IS_BTRK] & (abs(x[ANG_FIXED]) > abs(x[ANG_TRACK]))),
+                'conditional': lambda x: (~x[IS_BTRK] & (abs(x[ANG_TOP]) > abs(x[ANG_TRACK]))),
                 'other': top_btrk[ANG_TRACK],
                 'sim': self.tracking_model.keys()[0]
             },
@@ -735,7 +735,7 @@ class PVSystBatchSim(PVSystResult):
         # plt.plot(TOP_btrk.index.hour, TOP_btrk[ANG_TRACK], mec='r', color='None', marker='o')
         #
         plt.figure()
-        plt.plot(top_dict[IS_BTRK].loc[:, H_DIFF_RATIO], top_dict[IS_BTRK].loc[:, DT_RATIO], mec='k', color='None', marker='o')
+        # plt.plot(top_dict[IS_BTRK].loc[:, H_DIFF_RATIO], top_dict[IS_BTRK].loc[:, DT_RATIO], mec='k', color='None', marker='o')
         plt.plot(top_dict[IS_FORCED_BTRK].loc[:, H_DIFF_RATIO], top_dict[IS_FORCED_BTRK].loc[:, DT_RATIO], mec='b', color='None', marker='o')
         plt.plot(top_dict[IS_FORCED_ZERO].loc[:, H_DIFF_RATIO], top_dict[IS_FORCED_ZERO].loc[:, DT_RATIO], mec='r', color='None', marker='o')
         plt.title(self.location)
@@ -748,24 +748,24 @@ class PVSystBatchSim(PVSystResult):
         self.top_panel = pd.Panel.from_dict(top_dict, orient='minor')
 
     def get_forced_zero(self):
-        weird = self.top_panel.loc[IS_FORCED_ZERO, :, 2][self.top_panel.loc[IS_FORCED_ZERO, :, 2]]
-        not_weird = self.top_panel.loc[IS_FORCED_ZERO, :, 2][self.top_panel.loc[IS_FORCED_ZERO, :, 2] == False]
+        weird = self.top_panel.loc[IS_FORCED_ZERO, :, IS_FORCED_ZERO][self.top_panel.loc[IS_FORCED_ZERO, :, IS_FORCED_ZERO]]
+        not_weird = self.top_panel.loc[IS_FORCED_ZERO, :, IS_FORCED_ZERO][self.top_panel.loc[IS_FORCED_ZERO, :, IS_FORCED_ZERO] == False]
         forced_panel = self.top_panel[:, weird.index, :]
         not_forced_panel = self.top_panel[:, not_weird.index, :]
 
         plt.figure()
         # plt.plot(top_panel.major_axis.hour, top_panel[ANG_TOP, :, 0], mec='k', color='None', marker='o')
-        plt.plot(self.top_panel.major_axis.hour, self.top_panel[ANG_TOP, :, 1], mec='b', color='None', marker='o')
-        plt.plot(forced_panel.major_axis.hour, forced_panel[ANG_TOP, :, 1], mec='y', mew=3, color='None', marker='o')
+        plt.plot(self.top_panel.major_axis.hour, self.top_panel[ANG_TOP, :, IS_FORCED_BTRK], mec='b', color='None', marker='o')
+        plt.plot(forced_panel.major_axis.hour, forced_panel[ANG_TOP, :, IS_FORCED_BTRK], mec='y', mew=3, color='None', marker='o')
 
         plt.figure()
         # plt.plot(top_panel[H_DIFF_RATIO, :, 0], top_panel[DT_RATIO, :, 0], mec='k', color='None', marker='o')
-        plt.plot(self.top_panel[H_DIFF_RATIO, :, 1], self.top_panel[DT_RATIO, :, 1], mec='b', color='None', marker='o')
-        plt.plot(forced_panel[H_DIFF_RATIO, :, 1], forced_panel[DT_RATIO, :, 1], mec='y', mew=3, color='None', marker='o')
+        plt.plot(self.top_panel[H_DIFF_RATIO, :, 1], self.top_panel[DT_RATIO, :, IS_FORCED_BTRK], mec='b', color='None', marker='o')
+        plt.plot(forced_panel[H_DIFF_RATIO, :, 1], forced_panel[DT_RATIO, :, IS_FORCED_BTRK], mec='y', mew=3, color='None', marker='o')
 
         plt.figure()
-        plt.plot(not_forced_panel[H_DIFFUSE, :, 1], not_forced_panel[H_DIFF_RATIO, :, 1], mec='b', color='None', marker='o')
-        plt.plot(forced_panel[H_DIFFUSE, :, 1], forced_panel[H_DIFF_RATIO, :, 1], mec='y', color='None', marker='o')
+        plt.plot(not_forced_panel[H_DIFFUSE, :, 1], not_forced_panel[H_DIFF_RATIO, :, IS_FORCED_BTRK], mec='b', color='None', marker='o')
+        plt.plot(forced_panel[H_DIFFUSE, :, 1], forced_panel[H_DIFF_RATIO, :, IS_FORCED_BTRK], mec='y', color='None', marker='o')
 
         return {True: forced_panel, False: not_forced_panel}
 
@@ -925,8 +925,8 @@ class PVSystBatchSim(PVSystResult):
 # *** NAPA ***
 f_fixed_vc = 'VC0'
 f_backtracking_vc = 'VC1'
-# f_directory = 'Napa'
-f_directory = 'test folder'
+f_directory = 'Napa'
+# f_directory = 'test folder'
 f_save_as = 'Napa_TMY3_BatchParams_1.CSV'
 f_descrip = 'test'
 
