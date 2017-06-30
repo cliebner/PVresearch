@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd  # version 0.18
 import datetime as dt
+import itertools
 import os
 
 # global variables:
@@ -60,10 +61,10 @@ IAMF_DIRECT = 'Direct IAM Factor'
 IAMF_DIFF_S = 'Sky Diffuse IAM Factor'
 IAMF_DIFF_G = 'Albedo IAM Factor'
 IS_DT = 'Diffuse Tracking?'
-IS_BTRK = 'Backtracking?'
+IS_STD_TRK = 'Std tracking best?'
 IS_FORCED_BTRK = 'Forced backtracking?'
 IS_FORCED_ZERO = 'Forced to zero?'
-IS_TRK = 'Standard tracking?'
+STD_TRK = 'Standard tracking'
 SIM_LOOKUP = 'Sim lookup'
 DT_GAIN = 'DiffTrack Gain'
 DT_GAIN_FACTOR = 'DiffTrack Gain Factor'
@@ -81,6 +82,7 @@ RATIO_DIFF_S = 'Incident Sky Diffuse Ratio'
 ENERGY_ARRAY = 'Array Output Energy'
 PVLOSS_IRRADIANCE = 'PV Loss due to Irradiance'
 PVLOSS_TEMP = 'PV Loss due to Temp'
+ENERGY_INV = 'Energy from Inverter'
 ENERGY_GRID = 'Energy to Grid'
 SCALE = 'scale output'
 LIM = 'limits'
@@ -96,8 +98,8 @@ angles_list = [ANG_ELEV, ANG_AZ, ANG_INC, ANG_PROF, ANG_SURF_AZ, ANG_SURF_TILT, 
 angles_range = [-90.0, 90.0]
 irradiance_list = [H_GLOBAL, H_DIFFUSE, H_DIRECT, I_GLOBAL, I_DIRECT, I_DIFF_G, I_DIFF_S, I_DIFF_T,
                    E_GLOBAL, E_DIRECT, E_DIFF_S, E_DIFF_G, S_GLOBAL, SLOSS_GLOBAL, SLOSS_DIRECT, SLOSS_DIFFUSE,
-                   DT_GAIN]
-energy_list = [ENERGY_ARRAY, ENERGY_GRID, PVLOSS_IRRADIANCE, PVLOSS_TEMP]
+                   SLOSS_ELEC, DT_GAIN]
+energy_list = [ENERGY_ARRAY, ENERGY_INV, ENERGY_GRID, PVLOSS_IRRADIANCE, PVLOSS_TEMP]
 energy_range = [0.0, 1000.0]
 energy_scales = {
     'A': 0.000001,
@@ -157,7 +159,8 @@ pvsyst_rename = {
     'FIAMDif': IAMF_DIFF_S,
     'FIAMAlb': IAMF_DIFF_G,
     'DifS/Gl': RATIO_DIFF_S,
-    'EArray': ENERGY_ARRAY,  # W
+    'EArray': ENERGY_ARRAY,
+    'EOutInv': ENERGY_INV, # W
     'GIncLss': PVLOSS_IRRADIANCE,  # W
     'TempLss': PVLOSS_TEMP,  # W
     'E_Grid': ENERGY_GRID,  # W
@@ -170,7 +173,7 @@ pvsyst_rename = {
 pvsyst_name_lookup = dict(zip(pvsyst_rename.values(), pvsyst_rename.keys()))
 useful_names = [pvsyst_name_lookup[i] for i in [DATE, ANG_ELEV, ANG_AZ, ANG_INC, ANG_TRACK,
                                                 H_GLOBAL, H_DIFFUSE, E_GLOBAL, E_DIRECT, E_DIFF_S, E_DIFF_G,
-                                                ENERGY_ARRAY, ENERGY_GRID, SLOSS_ELEC]
+                                                ENERGY_ARRAY, ENERGY_INV, ENERGY_GRID, SLOSS_ELEC]
                 ]
 PVSYST_BATCH_TEMPLATE_FILE = 'pvsyst_batch_template.CSV'
 BATCH_IDENT = 'Ident\n\n'  # e.g. list of SIM_1, SIM_2, etc.
@@ -185,8 +188,7 @@ BATCH_PITCH_T = 'Trackers\nPitch EW\n[m]'
 BATCH_PHI_MAX = 'Trackers\nPhi Max\n[deg]'  # must be empty -- not zero -- if backtracking NOT used in simulation
 BATCH_PHI_MIN = 'Trackers\nPhi Min\n[deg]'  # must be empty -- not zero -- if backtracking NOT used in simulation
 BATCH_COMMENT = 'Simul\nComment\n'
-PVSYST_BATCH_ORDER = [BATCH_IDENT, BATCH_VC, BATCH_FILENAME,
-                      BATCH_SITE, BATCH_MET,
+PVSYST_BATCH_ORDER = [BATCH_IDENT, BATCH_SITE, BATCH_MET, BATCH_VC, BATCH_FILENAME,
                       BATCH_PLANE_TILT, BATCH_PLANE_AZIM, BATCH_PITCH_S,
                       BATCH_PITCH_T, BATCH_PHI_MAX, BATCH_PHI_MIN,
                       BATCH_COMMENT]
@@ -225,6 +227,34 @@ PVSYST_BATCH_PARAMS_DICT_COMMENTER = {
 }
 
 
+def get_tracker_band(panel, low, high):
+    band_index = panel.major_axis[
+        (panel.loc[ANG_TRACK, :, STD_TRK] < high) & (panel.loc[ANG_TRACK, :, STD_TRK] >= low)]
+    return panel[:, band_index, :]
+
+
+def plot_tracker_band(panel, constraint, start, end):
+    x_data_am = get_tracker_band(panel, min([-1*abs(start), -1*abs(end)]),
+                                 max([-1*abs(start), -1*abs(end)])).loc[H_DIFF_RATIO, :, constraint]
+    y_data_am = get_tracker_band(panel, min([-1*abs(start), -1*abs(end)]),
+                                 max([-1*abs(start), -1*abs(end)])).loc[DT_RATIO, :, constraint]
+    x_data_pm = get_tracker_band(panel, min([abs(start), abs(end)]),
+                                 max([abs(start), abs(end)])).loc[H_DIFF_RATIO,:, constraint]
+    y_data_pm = get_tracker_band(panel, min([abs(start), abs(end)]),
+                                 max([abs(start), abs(end)])).loc[DT_RATIO,:, constraint]
+    fit_am = np.polyfit(x_data_am, y_data_am, 2)
+    fit_pm = np.polyfit(x_data_pm, y_data_pm, 2)
+    x_array = np.arange(0.1,1.01, 0.01)
+    y_fit_am = fit_am[0]*x_array**2 + fit_am[1]*x_array**1 + fit_am[2]*x_array**0
+    y_fit_pm = fit_pm[0] * x_array ** 2 + fit_pm[1] * x_array ** 1 + fit_pm[2] * x_array ** 0
+    plt.plot(x_data_am, y_data_am, mec='r', marker='o', color='None')
+    plt.plot(x_array, y_fit_am, 'r:')
+    plt.plot(x_data_pm, y_data_pm, mec='g', marker='o', color='None')
+    plt.plot(x_array, y_fit_pm, 'g:')
+    plt.legend([str([min([-1*abs(start), -1*abs(end)]), max([-1*abs(start), -1*abs(end)])]), '',
+                str([min([abs(start), abs(end)]), max([abs(start), abs(end)])]), ''], loc='lower left')
+
+
 class PVSystResult(object):
     '''
     This is a class that defines general methods for interacting with a single PVSyst 'User Hourly" csv file.
@@ -234,16 +264,23 @@ class PVSystResult(object):
     * method for
     '''
 
-    def __init__(self, location, hourly_results_file):
-        self.location = location
+    def __init__(self, descrip, hourly_results_file):
+        self.description = descrip
+        self.MET_file = None
+        self.SIT_file = None
+        self.sim_variant = None
         self.result_file = hourly_results_file
         self.separator = ';'  # for single PVsyst results
         self.is_tracking = False
         self.result_df = self.unpack_single_pvsyst_result()
+
+        # TODO: implement general weather analyzer -- parent class of tmy analyzer...
         self.get_site_diffuseness()
         # self.daytime_df_index = self.get_daytime_df().index
         # self.avg_diffuse = self.result_df.loc[self.daytime_df_index, self.H_DIFF_RATIO].mean()
-        # self.cloudy_days = self.get_cloudy_days()
+        self.cloudy_days, self.cloudy_days_eqx = self.get_cloudy_days(is_diffuse=True)
+        self.sunny_days, self.sunny_days_eqx = self.get_cloudy_days(is_diffuse=False)
+        self.export_as_csv()
 
     def __str__(self):
         return self.result_file
@@ -251,17 +288,26 @@ class PVSystResult(object):
     def unpack_single_pvsyst_result(self):
         # Read top few lines to understand data column names and order:
         with open(self.result_file, 'r', 0) as f:
-            # header_lines = [next(f) for x in xrange(11)]
             all_lines = f.readlines()
+
         # check the separator (always positioned at zeroth character of first line in file):
         self.separator = all_lines[1][0]
-        # header_lines = all_lines[:11]
-        col_names = all_lines[10].strip().split(self.separator)
+
+        # get simulation-specific data:
+        i_met = ['Meteo data' in a[:12] for a in all_lines[:15]].index(True)
+        i_sit = ['Geographical Site' in a[:18] for a in all_lines[:15]].index(True)
+        i_vc = ['Simulation variant' in a[:19] for a in all_lines[:15]].index(True)
+        i_col = ['date' in a[:5] for a in all_lines[:15]].index(True)
+
+        self.MET_file = all_lines[i_met].split(self.separator)[1]
+        self.SIT_file = all_lines[i_sit].split(self.separator)[1]
+        self.sim_variant = all_lines[i_vc].split(self.separator)[1]
+        col_names = all_lines[i_col].strip().split(self.separator)
+
         name_index_map = dict(zip(col_names, range(len(col_names))))
-        # col_names = header_lines[10].strip().split(self.separator)
         usable_names = [u for u in useful_names if u in col_names]
         result_dict = {u: [] for u in usable_names}
-        for i in range(13, len(all_lines)):
+        for i in range(i_col+3, len(all_lines)):
             for u in usable_names:
                 value = all_lines[i].split(self.separator)[name_index_map[u]]
                 if u is pvsyst_name_lookup[DATE]:
@@ -274,7 +320,7 @@ class PVSystResult(object):
         result_df.set_index(DATE, inplace=True)
         self.is_tracking = ANG_TRACK in result_df.columns
 
-        # Read in PVSyst results file as data frame:
+        # Read in PVSyst results file as data frame:  DON'T DO THIS -- PANDAS HAS A LOT OF OVERHEAD
         # result_df = pd.read_csv(self.result_file, sep=self.separator, header=0,
         #                         skiprows=[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 11],
         #                         usecols=usable_names,
@@ -296,16 +342,16 @@ class PVSystResult(object):
 
     def plot_site_diffuseness(self):
         self.result_df[H_DIFF_RATIO].plot.hist(bins=50)
-        plt.title(self.location, fontsize=16)
+        plt.title(self.description, fontsize=16)
         plt.xlabel(H_DIFF_RATIO)
         plt.ylim([0, 1000])
 
     def export_as_csv(self):
         pvsyst_rename_inv = {p[1]: p[0] for p in pvsyst_rename.iteritems()}
         # Convert names back to PVSyst convention names:
-        self.result_df.rename(columns=pvsyst_rename_inv, inplace=True)
+        export_df = self.result_df.rename(columns=pvsyst_rename_inv, inplace=False)
         print "saving to .csv file"
-        self.result_df.to_csv(self.location)
+        export_df.to_csv(self.description + '_pyexport.csv')
         print "done!"
 
     def plot_single_output_hourly(self, single_output, title_str=''):
@@ -315,7 +361,7 @@ class PVSystResult(object):
         #        (optional) show_flat: set True if you also want to plot results from "flat" simulation
         plt.plot(self.result_df[single_output], 'b.')
         # plt.figure(figsize=(15, 8))
-        plt.title(self.location + ': ' + single_output + '\n' +
+        plt.title(self.description + ': ' + single_output + '\n' +
                   title_str, fontsize=16)
 
     def get_y_axis_info(self, y_data, resample_rate):
@@ -349,25 +395,30 @@ class PVSystResult(object):
             units = 'units'
         return {SCALE: scale_by, LIM: ylim, UNITS: units}
 
-    def get_cloudy_days(self, num_days=3, is_diffuse=True, diffuse_ratio_threshold=0.7, min_day_fraction=0.75):
+    def get_cloudy_days(self, num_days=3, is_diffuse=True, diffuse_ratio_threshold=0.7):
         ''''
-        Sorts days of the year based on SKY diffuse ratio (ignoring albedo).  Use keyword args to select for high
-        diffuse (cloudy) or low diffuse (clear) days.
+        Sorts days of the year based on DAILY MEAN HORIZONTAL diffuse ratio (ignoring albedo).
+        Use keyword args to select for high diffuse (cloudy) or low diffuse (clear) days.
         Outputs: pandas series for days where diffuse ratio meets a limit
-        Inputs: dataframe with the effective sky diffuse irradiance and
+        Inputs: dataframe with the horiz diffuse ratio and
                 optional kwargs: diffuse boolean (set to False to find clear days),
-                                 diffuse ratio threshold,
-                                 minimum number of hours at or above threshold
+                                 diffuse ratio threshold
         '''
-        diffuse_ratio = self.result_df[E_DIFF_S] / self.result_df[E_GLOBAL]
-        day_count = diffuse_ratio.resample('D').count()
+        # diffuse_ratio = self.result_df[E_DIFF_S] / self.result_df[E_GLOBAL]
+        daily_diffuse = self.result_df[H_DIFF_RATIO].resample('D').mean()
         if is_diffuse is True:
-            diffuse_count = diffuse_ratio[diffuse_ratio > diffuse_ratio_threshold].resample('D').count()
+            threshold_daily_diffuse = daily_diffuse[daily_diffuse > diffuse_ratio_threshold].sort_values(ascending=False)
+            # sorted_by_diffuse_ratio = day_fraction[day_fraction > min_day_fraction].sort_values(ascending=False)
         else:
-            diffuse_count = diffuse_ratio[diffuse_ratio < diffuse_ratio_threshold].resample('D').count()
-        day_fraction = diffuse_count / day_count
-        sorted_by_diffuse_ratio = day_fraction[day_fraction > min_day_fraction].sort_values(ascending=False)
-        return sorted_by_diffuse_ratio.index[:num_days].strftime('%Y-%m-%d')
+            threshold_daily_diffuse = daily_diffuse[daily_diffuse < diffuse_ratio_threshold].sort_values(ascending=True)
+            # sorted_by_diffuse_ratio = day_fraction[day_fraction > min_day_fraction].sort_values(ascending=False)
+
+        around_equinox = threshold_daily_diffuse[(threshold_daily_diffuse.index.month == 3) |
+                                                 (threshold_daily_diffuse.index.month == 4) |
+                                                 (threshold_daily_diffuse.index.month == 9) |
+                                                 (threshold_daily_diffuse.index.month == 10)]
+
+        return threshold_daily_diffuse[:num_days], around_equinox[:num_days]
 
     def get_daytime_df(self, threshold=10.0):
         # Use this method on any dataframe to get only the hours when Global Incident Irradiance > threshold W/m2.
@@ -410,6 +461,7 @@ class PVSystBatchSim(PVSystResult):
         # self.batch_dict = {x: [] for x in PVSYST_BATCH_ORDER}
         self.batch_dict = {}
         self.read_variables = []
+        self.base_variant = None
         self.tracking_model = None
         self.results_dict = {}  # a dict of PVSystResult objects
         self.results_panel = None
@@ -436,12 +488,15 @@ class PVSystBatchSim(PVSystResult):
         for h in range(len(self.batch_dict[BATCH_FILENAME])):
             print "loading sim: " + self.batch_dict[BATCH_COMMENT][h]
             try:
+
                 self.results_dict[self.batch_dict[BATCH_COMMENT][h]] = \
-                    PVSystResult(self.location, self.batch_dict[BATCH_FILENAME][h])
+                    PVSystResult(self.batch_dict[BATCH_COMMENT][h], self.batch_dict[BATCH_FILENAME][h])
+
                 # to each result df, add columns to describe the variables in play for that simulation result
                 # e.g. if panel tilt is a variable, this adds a column showing constant panel tilt for any simulation df
                 for v in self.read_variables:
                     self.results_dict[self.batch_dict[BATCH_COMMENT][h]].result_df[v] = self.batch_dict[v][h]
+
             except IOError:
                 print self.batch_dict[BATCH_COMMENT][h] + ' does not exist'
 
@@ -453,6 +508,7 @@ class PVSystBatchSim(PVSystResult):
         else:
             print "tracking model(s) found: " + ', '.join([str(t) for t in self.tracking_model.keys()])
         print "done!"
+
 
     def find_tracking_model(self):
         return {r[0]: r[1] for r in self.results_dict.iteritems() if r[1].is_tracking is True}
@@ -472,6 +528,12 @@ class PVSystBatchSim(PVSystResult):
         # read file that lists PVsyst batch simulations:
         with open(self.batch_filename, 'r', 0) as f:
             file_lines = f.read().splitlines()
+
+        # identify base variant, if not already known:
+        if self.base_variant is None:
+            i_vn = ['Variants based on' in f for f in file_lines[0:14]].index(True)
+            variant_name_line = file_lines[i_vn].split(self.separator)
+            self.base_variant = variant_name_line[2]
 
         # count (& read) column headings:
         i = ['Ident' in f for f in file_lines].index(True)
@@ -496,19 +558,24 @@ class PVSystBatchSim(PVSystResult):
         self.batch_file_read = True
         self.read_variables = set(self.batch_dict.keys()).intersection(set(PVSYST_BATCH_VARIABLES))
 
-    def create_batch_file(self, save_as='batch_filename', base_variant='VC', description='None',
+    def create_batch_file(self, base_variant=None, save_as='batch_filename', description='None',
                           variables=PVSYST_BATCH_PARAMS_DICT):
 
-        separator = ';'
+        self.base_variant = base_variant
         num_sims = max([len(x[1]) for x in variables.iteritems()])
 
         # add the SIM_, filename, and comment columns to the variables columns:
         columns = variables.copy()
-        columns[BATCH_IDENT] = ['SIM_' + str(x) for x in
-                                  range(2, num_sims + 2)]  # start at SIM_2 bc PVsyst overwrites SIM_1
-        columns[BATCH_COMMENT] = ['_'.join([str(v[1][n]) + PVSYST_BATCH_PARAMS_DICT_COMMENTER[v[0]]
-                                            for v in variables.iteritems()]) for n in range(0, num_sims)]
-        columns[BATCH_FILENAME] = [m + '.csv' for m in columns[BATCH_COMMENT]]
+        if BATCH_IDENT not in columns.keys():
+            columns[BATCH_IDENT] = ['SIM_' + str(x) for x in
+                                      range(2, num_sims + 2)]  # start at SIM_2 bc PVsyst overwrites SIM_1
+        if BATCH_COMMENT not in columns.keys():
+            columns[BATCH_COMMENT] = ['_'.join([str(v[1][n]) + PVSYST_BATCH_PARAMS_DICT_COMMENTER[v[0]]
+                                            for v in variables.iteritems()
+                                                if v[0] not in [BATCH_COMMENT, BATCH_FILENAME]])
+                                      for n in range(0, num_sims)]
+        if BATCH_FILENAME not in columns.keys():
+            columns[BATCH_FILENAME] = [m + '.csv' for m in columns[BATCH_COMMENT]]
 
         # get columns sorted in PV syst order
         cols_in_use = [c for c in PVSYST_BATCH_ORDER if c in columns.keys()]
@@ -516,22 +583,27 @@ class PVSystBatchSim(PVSystResult):
         with open(PVSYST_BATCH_TEMPLATE_FILE, 'r', 0) as f:
             batch_template_file = f.read().splitlines(1)
 
-        header_w = batch_template_file[0:14]
+        header = batch_template_file[0:14]
         # replace some data in template header
-        project_name_line = header_w[4].split(separator)
+        i_fc = ['File Created on ' in h for h in header].index(True)
+        header[i_fc] = 'File Created on ' + dt.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        i_pn = ['Project' in h for h in header].index(True)
+        project_name_line = header[i_pn].split(self.separator)
         project_name = project_name_line[3]
         project_name_line.remove(project_name)
         project_name_line.insert(3, self.location)
-        header_w[4] = separator.join(project_name_line)
+        header[i_pn] = self.separator.join(project_name_line)
 
-        variant_name_line = header_w[5].split(separator)
+        i_vn = ['Variants based on' in h for h in header].index(True)
+        variant_name_line = header[i_vn].split(self.separator)
         variant_name = variant_name_line[2]
         descrip = variant_name_line[3]
         variant_name_line.remove(variant_name)
-        variant_name_line.insert(2, base_variant)
+        variant_name_line.insert(2, self.base_variant)  #TODO: fix: should user have to enter BATCH_VC?
         variant_name_line.remove(descrip)
         variant_name_line.insert(3, description)
-        header_w[5] = separator.join(variant_name_line)
+        header[i_vn] = self.separator.join(variant_name_line)
 
         if self.directory is None:
             new_filename = save_as
@@ -540,7 +612,7 @@ class PVSystBatchSim(PVSystResult):
         with open(new_filename, 'w') as f:
 
             # write header:
-            for h in header_w:
+            for h in header:
                 f.write(h)
             f.write(';\n')
 
@@ -548,17 +620,17 @@ class PVSystBatchSim(PVSystResult):
             # Plane
             # tilt
             # [deg]
-            f.write(separator.join([c.split('\n')[0] for c in cols_in_use]) + ';\n')
-            f.write(separator.join([c.split('\n')[1] for c in cols_in_use]) + ';\n')
-            f.write(separator.join([c.split('\n')[2] for c in cols_in_use]) + ';\n')
+            f.write(self.separator.join([c.split('\n')[0] for c in cols_in_use]) + ';\n')
+            f.write(self.separator.join([c.split('\n')[1] for c in cols_in_use]) + ';\n')
+            f.write(self.separator.join([c.split('\n')[2] for c in cols_in_use]) + ';\n')
             f.write(';\n')
 
             # write data:
             # PVSyst will overwrite whatever is in the first line (SIM_1) with the base variant parameters, so write to
             # 2nd line
-            f.write('SIM_1' + separator * len(cols_in_use) + '\n')
+            f.write('SIM_1' + self.separator * len(cols_in_use) + '\n')
             for n in range(0, num_sims):
-                f.write(separator.join([str(columns[c][n]) for c in cols_in_use]) + ';\n')
+                f.write(self.separator.join([str(columns[c][n]) for c in cols_in_use]) + ';\n')
             f.write(';\n')
 
         # set the object variables:
@@ -566,7 +638,7 @@ class PVSystBatchSim(PVSystResult):
         # self.batch_dict = batch_dict
         self.batch_filename = new_filename
 
-    def get_TOP_model(self, opt_param=E_GLOBAL):
+    def get_TOP_model(self, top_param=E_GLOBAL, how='max'):
 
         '''
         This method sifts through many PVSyst simulations to optimize for a given factor (e.g.  POA irradiance,
@@ -598,12 +670,12 @@ class PVSystBatchSim(PVSystResult):
         # booleans: flags to show if tracking is best, if tracking is forced, and if flat is forced.
         #           shows when masks are applied
         # angles: only ANG_TOP and ANG_TOP_INC change each time
-        # effective irradiance: change as ANG_TOP_INC changes
+        # effective irradiance: changes with each TOP
         # DT_xx: changes with each TOP
         top_template = pd.DataFrame(index=day_index,
                                    columns=list({H_DIFF_RATIO, H_GLOBAL, H_DIFFUSE,
-                                                 opt_param,
-                                                 IS_BTRK, IS_FORCED_BTRK, IS_FORCED_ZERO, SIM_LOOKUP,
+                                                 top_param,
+                                                 IS_STD_TRK, IS_FORCED_BTRK, IS_FORCED_ZERO, SIM_LOOKUP,
                                                  ANG_FIXED, ANG_TRACK, ANG_TOP, ANG_INC,
                                                  E_GLOBAL, E_DIRECT, E_DIFF_S, E_DIFF_G,
                                                  DT_DELTA, DT_DELTA_ABS, DT_RATIO}))
@@ -614,138 +686,104 @@ class PVSystBatchSim(PVSystResult):
                 top_btrk[c] = self.tracking_model.values()[0].result_df.loc[day_index, c]
             except KeyError:
                 continue
-        # top_0: find max value and its index
+        # top_0: find optimum value and its index
         top_0 = top_btrk.copy()
-        top_0[opt_param] = self.results_panel.loc[opt_param, day_index, :].apply(np.max, axis=1)
-        top_0[SIM_LOOKUP] = self.results_panel.loc[opt_param, day_index, :].idxmax(axis=1)
-        # top_0[IS_BTRK] = top_0[SIM_LOOKUP] == self.tracking_model.keys()[0]  # may break if there are more than 1 backtracking models in the batch!
+        top_0[top_param] = {
+            'max': self.results_panel.loc[top_param, day_index, :].apply(np.max, axis=1),
+            'min': self.results_panel.loc[top_param, day_index, :].apply(np.min, axis=1)
+        }[how]
+        top_0[SIM_LOOKUP] = {
+            'max': self.results_panel.loc[top_param, day_index, :].idxmax(axis=1),
+            'min': self.results_panel.loc[top_param, day_index, :].idxmin(axis=1)
+        }[how]
         top_0[ANG_FIXED] = pd.Series(self.results_panel[BATCH_PLANE_TILT, day_index, :].lookup(top_0.index, top_0[SIM_LOOKUP]),
                                index=day_index)
-        # tracking = pd.Series(self.results_panel[ANG_TRACK, :, :].lookup(max_minoraxis.index, max_minoraxis),
-        #                        index=self.results_panel.major_axis)
-        # top_0[ANG_TOP] = top_0[ANG_FIXED].mask(top_0[IS_BTRK], other=top_btrk[ANG_TRACK]).apply(float)
+        # if ANG_FIXED cannot be found in lookup (bc standard tracking is used), use a filler float value:
+        top_0[ANG_FIXED].mask(top_0[ANG_FIXED] == '', other=99.0, inplace=True)
 
         constraints = {
-            IS_BTRK: {
+            IS_STD_TRK: {
                 'series': lambda x: x[ANG_FIXED],
-                'conditional': lambda x: x[SIM_LOOKUP] == self.tracking_model.keys()[0],
+                'conditional': lambda x: x[SIM_LOOKUP] == self.tracking_model.keys()[0], # may break if there are more than 1 backtracking models in the batch!
                 'other': top_btrk[ANG_TRACK],
                 'sim': self.tracking_model.keys()[0]
             },
             IS_FORCED_BTRK: {
                 'series': lambda x: x[ANG_TOP],
-                'conditional': lambda x: (~x[IS_BTRK] & (abs(x[ANG_TOP]) > abs(x[ANG_TRACK]))),
+                'conditional': lambda x: (x[IS_STD_TRK] == False) & (abs(x[ANG_FIXED]) > abs(x[ANG_TRACK])),
                 'other': top_btrk[ANG_TRACK],
                 'sim': self.tracking_model.keys()[0]
             },
             IS_FORCED_ZERO: {
                 'series': lambda x: x[ANG_TOP],
-                'conditional': lambda x: ((x.index.hour < 12) & (x[ANG_TOP] > 0.0)) | ((x.index.hour > 12) & (x[ANG_TOP] < 0.0)),
+                # 'conditional': lambda x: ((x.index.hour < 12) & (x[ANG_TOP] > 0.0)) | ((x.index.hour > 12) & (x[ANG_TOP] < 0.0)),
+                'conditional': lambda x: x[DT_RATIO] < 0.0,
                 'other': 0.0,
                 'sim': self.batch_dict[BATCH_COMMENT][self.batch_dict[BATCH_PLANE_TILT].index(0.0)]
             }
         }
-        constraint_order = [IS_BTRK, IS_FORCED_BTRK, IS_FORCED_ZERO]
+        constraint_order = [IS_STD_TRK, IS_FORCED_BTRK, IS_FORCED_ZERO]
         top_dict = {c: top_0.copy() for c in constraint_order}
+        top_dict[STD_TRK] = top_btrk.copy()
         i = 0
         for c in constraint_order:
             top_dict[c].loc[:, c] = constraints[c]['conditional'](top_dict[c])
             top_dict[c].loc[:, ANG_TOP] = \
-                constraints[c]['series'](top_dict[c]).mask(constraints[c]['conditional'](top_dict[c]),
+                constraints[c]['series'](top_dict[c]).mask(top_dict[c].loc[:, c],
                                                            other=constraints[c]['other'], inplace=False).apply(float)
-            top_dict[c].loc[:, SIM_LOOKUP].mask(constraints[c]['conditional'](top_dict[c]),
+            top_dict[c].loc[:, SIM_LOOKUP] = top_dict[c].loc[:, SIM_LOOKUP].mask(top_dict[c].loc[:, c],
                                                 other=constraints[c]['sim'], inplace=False)
-            for p in [ANG_INC, E_GLOBAL, E_DIRECT, E_DIFF_S, E_DIFF_G]:
-                top_dict[c].loc[:, p] = pd.Series(self.results_panel[p].lookup(top_dict[c].index, top_dict[c].loc[:, SIM_LOOKUP]), index=day_index)
+            for p in list({top_param, ANG_INC, E_GLOBAL, E_DIRECT, E_DIFF_S, E_DIFF_G}):
+                top_dict[c].loc[:, p] = pd.Series(self.results_panel.loc[p,:,:].lookup(
+                    day_index, top_dict[c].loc[:, SIM_LOOKUP]), index=day_index)
             top_dict[c].loc[:, DT_DELTA] = top_dict[c].loc[:, ANG_TOP] - top_btrk.loc[:, ANG_TRACK]
             top_dict[c].loc[:, DT_DELTA_ABS] = top_dict[c].loc[:, DT_DELTA].apply(np.abs)
             top_dict[c].loc[:, DT_RATIO] = top_dict[c].loc[:, ANG_TOP] / top_btrk.loc[:, ANG_TRACK]
 
             # initialize next df as a copy of this df:
-            if i < len(constraint_order) - 1:
+            if i < (len(constraint_order) - 1):
                 top_dict[constraint_order[i + 1]] = top_dict[constraint_order[i]].copy()
                 i += 1
 
-        # # TOP_1: apply constraint 1:
-        # # don't let TOP pick an angle more steep than backtracking to prevent unwanted shading
-        # # force to backtracking angle
-        # # TODO: check if this is necessary if we optimize on E_ARRAY
-        # top_1 = top_0.copy()
-        # top_2 = top_0.copy()
-        #
-        #
-        #
-        # # is_outside_btrk_range =
-        # TOP_1_model[IS_FORCED_BTRK] = ~TOP_0_model[IS_BTRK] & (abs(TOP_0_model[ANG_FIXED]) > abs(TOP_0_model[ANG_TRACK]))
-        # TOP_1_model[ANG_TOP] = TOP_0_model[ANG_TOP].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[ANG_TRACK], inplace=False)
-        #
-        # TOP_1_model[ANG_TOP_INC] = TOP_0_model[ANG_TOP_INC].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[ANG_INC],
-        #                                                          inplace=False)
-        # TOP_1_model[E_GLOBAL] = TOP_0_model[E_GLOBAL].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_GLOBAL],
-        #                                                          inplace=False)
-        # TOP_1_model[E_DIRECT] = TOP_0_model[E_DIRECT].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_DIRECT],
-        #                                                    inplace=False)
-        # TOP_1_model[E_DIFF_S] = TOP_0_model[E_DIFF_S].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_DIFF_S],
-        #                                                    inplace=False)
-        # TOP_1_model[E_DIFF_G] = TOP_0_model[E_DIFF_G].mask(TOP_1_model[IS_FORCED_BTRK], other=TOP_btrk[E_DIFF_G],
-        #                                                    inplace=False)
-        # TOP_1_model[DT_DELTA] = TOP_1_model.loc[:, ANG_TOP] - TOP_btrk.loc[:, ANG_TRACK]
-        # TOP_1_model[DT_DELTA_ABS] = TOP_1_model[DT_DELTA].apply(np.abs)
-        # TOP_1_model[DT_RATIO] = TOP_1_model.loc[:, ANG_TOP] / TOP_btrk.loc[:, ANG_TRACK]
-        #
-        # # constraint 2:
-        # # don't let TOP pick an angle inappropriate for time of day, e.g. +10 deg for 10am.
-        # # force to 0.0 deg
-        # TOP_2_model = TOP_1_model.copy()
-        # minoraxis_0deg = dict(zip(panel_tilt_map.values(), panel_tilt_map.keys()))[0.0]
-        # # is_facing_wrong_azimuth = (TOP_model[IS_BTRK] == False) \
-        # #                           & (((TOP_model.index.hour < 12) & (TOP_model[ANG_FIXED] > 0.0)) |
-        # #                              ((TOP_model.index.hour > 12) & (TOP_model[ANG_FIXED] < 0.0)))
-        # TOP_2_model[IS_FORCED_ZERO] = (~TOP_0_model[IS_BTRK] | ~TOP_1_model[IS_FORCED_BTRK]) \
-        #                           & (((TOP_1_model.index.hour < 12) & (TOP_1_model[ANG_TOP] > 0.0)) |
-        #                              ((TOP_1_model.index.hour > 12) & (TOP_1_model[ANG_TOP] < 0.0)))
-        # # TOP_model[IS_FORCED_ZERO] = is_facing_wrong_azimuth
-        # TOP_2_model[ANG_TOP] = TOP_1_model[ANG_TOP].mask(TOP_2_model[IS_FORCED_ZERO], other=0.0, inplace=False)
-        # # TOP_model[ANG_TOP] = TOP_model[ANG_TOP_2].copy()
-        # TOP_2_model[ANG_TOP_INC].mask(TOP_2_model[IS_FORCED_ZERO],
-        #                         other=self.results_panel.loc[ANG_INC, day_index, minoraxis_0deg], inplace=True)
-        # TOP_2_model[E_GLOBAL] = TOP_1_model[E_GLOBAL].mask(TOP_2_model[IS_FORCED_ZERO],
-        #                                                    other=self.results_panel.loc[E_GLOBAL, day_index, minoraxis_0deg],
-        #                                                    inplace=False)
-        # TOP_2_model[E_DIRECT] = TOP_1_model[E_DIRECT].mask(TOP_2_model[IS_FORCED_ZERO],
-        #                                                    other=self.results_panel.loc[E_DIRECT, day_index, minoraxis_0deg],
-        #                                                    inplace=False)
-        # TOP_2_model[E_DIFF_S] = TOP_1_model[E_DIFF_S].mask(TOP_2_model[IS_FORCED_ZERO],
-        #                                                    other=self.results_panel.loc[E_DIFF_S, day_index, minoraxis_0deg],
-        #                                                    inplace=False)
-        # TOP_2_model[E_DIFF_G] = TOP_1_model[E_DIFF_G].mask(TOP_2_model[IS_FORCED_ZERO],
-        #                                                    other=self.results_panel.loc[E_DIFF_G, day_index, minoraxis_0deg],
-        #                                                    inplace=False)
-        # TOP_2_model[DT_DELTA] = TOP_2_model.loc[:, ANG_TOP] - TOP_btrk.loc[:, ANG_TRACK]
-        # TOP_2_model[DT_DELTA_ABS] = TOP_2_model[DT_DELTA].apply(np.abs)
-        # TOP_2_model[DT_RATIO] = TOP_2_model.loc[:, ANG_TOP] / TOP_btrk.loc[:, ANG_TRACK]
+        # trim away instances where DIFF_RATIO = 1.0 and where DT_RATIO = 1.0
+        top_dict[IS_DT] = top_dict[c][(top_dict[c][DT_RATIO] < 1.0) & (top_dict[c][H_DIFF_RATIO] < 1.0)]
+
+        self.top_panel = pd.Panel.from_dict(top_dict, orient='minor')
+
+        # print % improvement results:
+        pure_TOP = (self.top_panel.loc[top_param,:,IS_STD_TRK].sum() - self.top_panel.loc[top_param,:,STD_TRK].sum()) \
+                   / self.top_panel.loc[top_param,:,STD_TRK].sum()
+        forced_btrk = (
+                   self.top_panel.loc[top_param, :, IS_FORCED_BTRK].sum() - self.top_panel.loc[top_param, :, STD_TRK].sum()) \
+                   / self.top_panel.loc[top_param, :, STD_TRK].sum()
+        forced_zero = (
+                   self.top_panel.loc[top_param, :, IS_FORCED_ZERO].sum() - self.top_panel.loc[top_param, :, STD_TRK].sum()) \
+                   / self.top_panel.loc[top_param, :, STD_TRK].sum()
+
+        print '*** Improvement by TOP ***'
+        print 'pure TOP:\t\t\t\t', '{0:0.2f}'.format(pure_TOP*100.0) + '%'
+        print 'force backtracking:\t', '{0:0.2f}'.format(forced_btrk*100.0) + '%'
+        print 'force flat:\t\t\t\t', '{0:0.2f}'.format(forced_zero*100.0) + '%'
 
 
-        plt.figure()
-        plt.plot(top_dict[IS_BTRK].index.hour, top_dict[IS_BTRK].loc[:, ANG_TOP], mec='k', color='None', marker='o')
-        plt.plot(top_dict[IS_FORCED_BTRK].index.hour, top_dict[IS_FORCED_BTRK].loc[:, ANG_TOP], mec='b', color='None', marker='o')
-        plt.plot(top_dict[IS_FORCED_ZERO].index.hour, top_dict[IS_FORCED_ZERO].loc[:, ANG_TOP], mec='r', color='None', marker='o')
-        plt.title(self.location)
-        plt.ylabel(ANG_TOP)
+        # plt.figure()
+        # plt.plot(top_dict[IS_BTRK].index.hour, top_dict[IS_BTRK].loc[:, ANG_TOP], mec='k', color='None', marker='o')
+        # plt.plot(top_dict[IS_FORCED_BTRK].index.hour, top_dict[IS_FORCED_BTRK].loc[:, ANG_TOP], mec='b', color='None', marker='o')
+        # plt.plot(top_dict[IS_FORCED_ZERO].index.hour, top_dict[IS_FORCED_ZERO].loc[:, ANG_TOP], mec='r', color='None', marker='o')
+        # plt.title(self.location)
+        # plt.ylabel(ANG_TOP)
         # plt.plot(TOP_btrk.index.hour, TOP_btrk[ANG_TRACK], mec='r', color='None', marker='o')
         #
         plt.figure()
         # plt.plot(top_dict[IS_BTRK].loc[:, H_DIFF_RATIO], top_dict[IS_BTRK].loc[:, DT_RATIO], mec='k', color='None', marker='o')
         plt.plot(top_dict[IS_FORCED_BTRK].loc[:, H_DIFF_RATIO], top_dict[IS_FORCED_BTRK].loc[:, DT_RATIO], mec='b', color='None', marker='o')
         plt.plot(top_dict[IS_FORCED_ZERO].loc[:, H_DIFF_RATIO], top_dict[IS_FORCED_ZERO].loc[:, DT_RATIO], mec='r', color='None', marker='o')
-        plt.title(self.location)
+        plt.title(self.location + ': Optimized for ' + top_param)
         plt.xlabel(H_DIFF_RATIO)
         plt.ylabel(DT_RATIO)
 
-        # plt.figure(3)
-        # plt.plot(TOP_model[ANG_TRACK], mec='k', color='None', marker='o')
-        # plt.plot(TOP_model)
-        self.top_panel = pd.Panel.from_dict(top_dict, orient='minor')
+        # plt.figure()
+        # plt.plot()
 
     def get_forced_zero(self):
         weird = self.top_panel.loc[IS_FORCED_ZERO, :, IS_FORCED_ZERO][self.top_panel.loc[IS_FORCED_ZERO, :, IS_FORCED_ZERO]]
@@ -770,17 +808,34 @@ class PVSystBatchSim(PVSystResult):
         return {True: forced_panel, False: not_forced_panel}
 
     def get_tracker_band(self, low, high):
-        band = self.top_panel[ANG_TRACK, :, 'btrk'][
-            (self.top_panel[ANG_TRACK, :, 'btrk'] < high) & (self.top_panel[ANG_TRACK, :, 'btrk'] >= low)]
-        return self.top_panel[:, band.index, :]
+        band_index = self.top_panel.major_axis[
+            (self.top_panel[ANG_TRACK, :, STD_TRK] < high) & (self.top_panel[ANG_TRACK, :, STD_TRK] >= low)]
+        return self.top_panel[:, band_index, :]
 
-    def abc(self):
-        '''
-        1. separate results into bins based on PROFILE ANGLE, then plot diffuse ratio vs tracking angle adjustment
-        develop algorithm, e.g. for each hour, given a diffuse fraction, do SOMETHING
-        2. use the algortihm to predict how the tracker will perform
-        3. compare to TOP
-        '''
+    def plot_very_diffuse_top(self):
+        index_diffuse = self.top_panel.major_axis[self.top_panel.loc[H_DIFF_RATIO, :, STD_TRK] > 0.99]
+        plt.figure()
+        plt.plot(index_diffuse.hour, self.top_panel.loc[DT_RATIO, index_diffuse, IS_FORCED_BTRK], mec='b',
+                 color='None', marker='o')
+        plt.plot(index_diffuse.hour, self.top_panel.loc[DT_RATIO, index_diffuse, IS_FORCED_ZERO], mec='r',
+                 color='None', marker='o')
+        plt.title(self.location + ': DFI > 0.99')
+        plt.ylabel(DT_RATIO)
+        plt.xlabel('Hour of day')
+        plt.legend([IS_FORCED_BTRK, IS_FORCED_ZERO])
+
+    def plot_ang_inc_top(self, constraint=IS_FORCED_ZERO):
+        plt.figure()
+        x_data = ANG_INC
+        y_data = ANG_TRACK
+        plt.plot(self.top_panel.loc[x_data,:,STD_TRK], self.top_panel.loc[y_data,:,STD_TRK], mec='k',
+                 color='None', marker='o')
+        plt.plot(self.top_panel.loc[x_data, :, constraint], self.top_panel.loc[y_data, :, constraint], mec='b',
+                 color='None', marker='o')
+        plt.title(self.location)
+        plt.ylabel(y_data)
+        plt.xlabel(x_data)
+        plt.legend([STD_TRK, constraint])
 
     def plot_generic_df(self, df_to_plot, single_output, y_info, title_str=''):
         plt.clf()
@@ -883,101 +938,130 @@ class PVSystBatchSim(PVSystResult):
         # creates a single dataframe where columns are PVSyst variants
         return batch_panel[single_output]
 
-# test = PVSystResult('seattle', 'test folder/0 E.csv')
-# test = PVSystBatchSim('napa', directory='test folder')
-# test.batch_filename = 'Napa_TMY3_BatchParams_1.CSV'
-# test.read_batch_file()
-# test.load_data()
-# test_2 = PVSystBatchSim('seattle', directory='test folder')
-# test_2_dict = PVSYST_BATCH_PARAMS_DICT
-# test_2_dict[BATCH_PLANE_TILT] = list(np.arange(-60,60,10.0))
-# test_2_dict[BATCH_PLANE_AZIM] = [-90] * len(PVSYST_BATCH_PARAMS_DICT[BATCH_PLANE_TILT])
-# test_2.create_batch_file(base_variant='VC2', description='testtest', batch_dict=test_2_dict)
-# test_TOP = test.get_TOP_model(E_GLOBAL)
+# test batch run of METEO files
 
-# params_dict = PVSYST_BATCH_PARAMS_DICT
-# params_dict[BATCH_PLANE_TILT] = list(np.arange(-60,60.5,0.5))
-# params_dict[BATCH_PLANE_AZIM] = [90] * len(params_dict[BATCH_PLANE_TILT])
-#
-# ground_1w = PVSystBatchSim('seattle', directory='Seattle')
-# ground_1w.create_batch_file(save_as='Seattle_TMY3_Project_BatchParams_2.CSV', base_variant='VC2', description='slope_1W', batch_dict=params_dict)
-#
-# ground_0w = PVSystBatchSim('seattle', directory='Seattle')
-# ground_0w.create_batch_file(save_as='Seattle_TMY3_Project_BatchParams_3.CSV', base_variant='VC3', description='slope_0W', batch_dict=params_dict)
-#
-# ground_6w = PVSystBatchSim('seattle', directory='Seattle')
-# ground_6w.create_batch_file(save_as='Seattle_TMY3_Project_BatchParams_4.CSV', base_variant='VC4', description='slope_6W', batch_dict=params_dict)
-#
-# ground_5w = PVSystBatchSim('seattle', directory='Seattle')
-# ground_5w.create_batch_file(save_as='Seattle_TMY3_Project_BatchParams_5.CSV', base_variant='VC5', description='slope_5W', batch_dict=params_dict)
-
+panel_width = 2.01
+gcr_range = [0.4, 0.5]
+pitch_range = [round(panel_width/g,2) for g in gcr_range]
+MET_range = ['Coyhaique_MN71_SYN.MET', 'Hobart_MN71_SYN.MET', 'Kalgoorlie_MN71_SYN.MET',
+             'Pilar Obs__MN71_SYN.MET', 'Mendoza Airp__MN71_SYN.MET', 'Willis Is_MN71_SYN.MET',
+             'Brasilia_MN71_SYN.MET', 'Cuiab__MN71_SYN.MET', 'Thiruvananthapuram_MN71_SYN.MET',
+             'Belem_MN71_SYN.MET', 'S_o Lu_s_MN71_SYN.MET', 'Manaus_MN71_SYN.MET',
+             'Goa_MN71_SYN.MET', 'New Delhi_MN71_SYN.MET', 'New Orleans_MN71_SYN.MET',
+             'Port Arthur_MN71_SYN.MET', 'Alpena_MN71_SYN.MET', 'Salem_MN71_SYN.MET']
+pitch_range_x = [x[0] for x in list(itertools.product(pitch_range, MET_range))]
+MET_range_x = [x[1] for x in list(itertools.product(pitch_range, MET_range))]
+filename_range = [str(p) +'p_' + m.rstrip('_SYN.MET') + '.csv' for p in pitch_range for m in MET_range]
+var_dict = {
+    BATCH_PITCH_T: pitch_range_x,
+    BATCH_MET: MET_range_x,
+    BATCH_FILENAME: filename_range
+}
+# world_batch = PVSystBatchSim('world', directory='world')
+# world_batch.create_batch_file(base_variant='VC5', save_as='Napa_TMY3_BatchParams_0.CSV', description='varying lat, MET', variables=var_dict)
+# world_batch.batch_filename = 'Napa_TMY3_BatchParams_0.CSV'
+# world_batch.load_data()
+# ***********************************
 
 # generate files for Francesco
 # ************************************************
 # SITE SPECIFIC!  CHECK PVSYST!
-# *** AUSTRALIA ***
-# f_fixed_vc = 'VCH'
-# f_backtracking_vc = 'VC1'
-# f_directory = 'Townsville AUS'
-# f_save_as = 'Townsville_AUS_BatchParams_0.CSV'
-# f_descrip = 'test'
+projects_library = {
+    'AUS': {
+        'location': 'Townsville',
+        'directory': 'Townsville AUS',
+        'filename': 'Townsville_AUS_BatchParams_0.CSV',
+        'descrip': 'test',
+        'create batch file': False,
+        'variables': {
+            'fixed vc': ['VCH'],
+            'fixed tilt': list(np.arange(-60.0, 61.0, 1.0)),
+            'azimuth': [90.0],
+            'backtracking vc': ['VC1'], # what happens if this is set to None?
+            'phi min': [-60.0],
+            'phi max': [60.0],
+            },
+        'TOP model': (ENERGY_ARRAY, 'max'),
+    },
+    'Napa': {
+        'location': 'Napa',
+        'directory': 'Napa',
+        'filename': 'Napa_TMY3_BatchParams_0.CSV',
+        'descrip': 'DRES Quarry model',
+        'create batch file': False,
+        'variables': {
+            'fixed vc': ['VC3'],
+            'fixed tilt': list(np.arange(-60.0, 61.0, 1.0)),
+            'azimuth': [90.0],
+            'backtracking vc': ['VC5'],  # what happens if this is set to None?
+            'phi min': [-60.0],
+            'phi max': [60.0],
+        },
+        'TOP model': (ENERGY_ARRAY, 'max'),
+    },
+    'Seattle': {
+        'location': 'Seattle_TMY3',
+        'directory': 'Seattle',
+        'filename': 'Seattle_TMY3_Project_BatchParams_0.CSV',
+        'descrip': 'test',
+        'create batch file': True,
+        'variables': {
+            'fixed vc': ['VCF'],
+            'fixed tilt': list(np.arange(-60.0, 61.0, 1.0)),
+            'azimuth': [90.0],
+            'backtracking vc': ['VCG'],  # what happens if this is set to None?
+            'phi min': [-60.0],
+            'phi max': [60.0],
+        },
+        'TOP model': (ENERGY_ARRAY, 'max'),
+    }
+}
 
-# *** NAPA ***
-f_fixed_vc = 'VC0'
-f_backtracking_vc = 'VC1'
-f_directory = 'Napa'
-# f_directory = 'test folder'
-f_save_as = 'Napa_TMY3_BatchParams_1.CSV'
-f_descrip = 'test'
+projects_to_run = []
+projects = {}
 
-# *** SEATTLE ***
-# f_fixed_vc = 'VCF'
-# f_backtracking_vc = 'VCG'
-# f_directory = 'Seattle'
-# f_save_as = 'Seattle_Project_BatchParams_2.CSV'
-# f_descrip = 'test'
-# *************************************************
-f_tilt = list(np.arange(-60, 61, 1))
-f_azim = len(f_tilt) * [90]
-f_vc = len(f_tilt) * [f_fixed_vc]
-f_phi_max = len(f_tilt) * ['']
-f_phi_min = len(f_tilt) * ['']
-# now insert the backtracking VC at the top (not actually sure this matters?)
-f_tilt.insert(0, '')
-f_azim.insert(0, '')
-f_vc.insert(0, f_backtracking_vc)
-f_phi_max.insert(0, 60)
-f_phi_min.insert(0, -60)
-# # or append it:
-# f_tilt.append('')
-# f_azim.append('')
-# f_vc.append(backtracking_vc)
-# f_phi_max.append(60)
-# f_phi_min.append(-60)
-variables_dict = dict(zip([BATCH_VC, BATCH_PLANE_TILT, BATCH_PLANE_AZIM, BATCH_PHI_MAX, BATCH_PHI_MIN],
-                          [f_vc, f_tilt, f_azim, f_phi_max, f_phi_min]))
-francesco = PVSystBatchSim(f_directory, directory=f_directory)
-# francesco.create_batch_file(save_as=f_save_as, base_variant=f_backtracking_vc, description=f_descrip, variables=variables_dict)
-francesco.batch_filename = f_save_as
-francesco.load_data()
-francesco.get_TOP_model()
-# f_legend = []
-# for f in francesco.results_dict.iteritems():
-#     plt.plot(f[1].result_df.loc['1990-03', E_GLOBAL])
-#     f_legend.append(f[0])
-#
-# plt.legend(f_legend)
-# plt.show()
+for p in projects_to_run:
+    projects[p] = PVSystBatchSim(projects_library[p]['location'], directory=projects_library[p]['directory'])
 
-# generate files for Yudong
-# ************************************************
-# SITE SPECIFIC!  CHECK PVSYST!
-y_fixed_vc = 'VCH'
-y_backtracking_vc = 'VC1'
-y_directory = 'Townsville AUS'
-y_save_as = 'Townsville_AUS_BatchParams_1.CSV'
-y_descrip = 'test'
-# *************************************************
+    if projects_library[p]['create batch file'] is True:
+        # if you need to create a batch file:
+        num_sims = max([len(v[1]) for v in projects_library[p]['variables'].iteritems()])
+        tilt = {True: projects_library[p]['variables']['fixed tilt'],
+                False: projects_library[p]['variables']['fixed tilt'] * num_sims
+                }[len(projects_library[p]['variables']['fixed tilt']) == num_sims]
+        azim = {True: projects_library[p]['variables']['azimuth'],
+                False: projects_library[p]['variables']['azimuth'] * num_sims
+                }[len(projects_library[p]['variables']['azimuth']) == num_sims]
+        vc = {True: projects_library[p]['variables']['fixed vc'],
+              False: projects_library[p]['variables']['fixed vc'] * num_sims
+              }[len(projects_library[p]['variables']['fixed vc']) == num_sims]
+        phi_max = {True: projects_library[p]['variables']['phi max'],
+              False: projects_library[p]['variables']['phi max'] * num_sims
+              }[len(projects_library[p]['variables']['phi max']) == num_sims]
+        phi_min = {True: projects_library[p]['variables']['phi min'],
+              False: projects_library[p]['variables']['phi min'] * num_sims
+              }[len(projects_library[p]['variables']['phi min']) == num_sims]
+        if projects_library[p]['variables']['backtracking vc'] is not None:
+            tilt.insert(0, '')
+            azim.insert(0, '')
+            vc.insert(0, projects_library[p]['variables']['backtracking vc'][0])
+            phi_max.insert(0, 60.0)
+            phi_min.insert(0, -60.0)
+        variables_dict = dict(zip([BATCH_VC, BATCH_PLANE_TILT, BATCH_PLANE_AZIM, BATCH_PHI_MAX, BATCH_PHI_MIN],
+                                  [vc, tilt, azim, phi_max, phi_min]))
+        projects[p].create_batch_file(save_as=projects_library[p]['filename'],
+                                      description=projects_library[p]['descrip'],
+                                      variables=variables_dict)
+    else:
+        projects[p].batch_filename = projects_library[p]['filename']
+        projects[p].load_data()
+        projects[p].get_TOP_model(top_param=projects_library[p]['TOP model'][0],
+                                  how=projects_library[p]['TOP model'][1])
+
+    # if projects_library[p]['variables']['backtracking vc'] is None:
+    #     # this check may be useful later
+    #     pass
+
 
 
 
